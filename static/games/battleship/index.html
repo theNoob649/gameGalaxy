@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Battleship</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .bs-wrap { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+  .bs-board {
+    display: grid;
+    grid-template-columns: repeat(10, 32px);
+    grid-template-rows: repeat(10, 32px);
+    gap: 2px;
+    background: var(--border);
+    padding: 4px;
+    border-radius: 10px;
+  }
+  .bs-cell {
+    background: #1a2240;
+    cursor: pointer;
+    border-radius: 4px;
+    display: grid; place-items: center;
+    font-size: 14px;
+    user-select: none;
+  }
+  .bs-cell.ship { background: #475569; }
+  .bs-cell.preview { background: rgba(124,92,255,0.45); }
+  .bs-cell.invalid { background: rgba(248,113,113,0.55); }
+  .bs-cell.hit  { background: #b91c1c; color: white; }
+  .bs-cell.miss { background: #0a0e1f; color: var(--text-dim); }
+  .bs-cell.sunk { background: #f97316; color: white; }
+  .bs-cell.locked { cursor: default; }
+  .bs-section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; min-width: 360px; }
+  .bs-section h3 { margin: 0 0 8px; }
+  .bs-fleet { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); }
+  .bs-fleet .placed { text-decoration: line-through; color: var(--good); }
+  .bs-overlay {
+    position: fixed; inset: 0;
+    background: rgba(8, 12, 32, 0.96);
+    display: grid; place-items: center;
+    z-index: 100;
+    text-align: center;
+    padding: 20px;
+  }
+  .bs-overlay h2 { font-size: 32px; margin: 0 0 14px; }
+  .bs-overlay p  { color: var(--text-dim); max-width: 50ch; margin: 0 auto 18px; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span id="phaseLabel">Setup phase</span>
+    <button class="game-btn primary" id="play">New game</button>
+  </div>
+  <div class="bs-wrap" id="wrap"></div>
+  <div class="game-message" id="msg">Place all 5 ships. Click to place, R or right-click to rotate.</div>
+</div>
+
+<div class="bs-overlay" id="overlay" style="display:none">
+  <div>
+    <h2 id="ovTitle">Pass to Player 2</h2>
+    <p id="ovBody">Hand the device to the next player. They'll place their ships in private.</p>
+    <button class="game-btn primary" id="ovBtn">Ready</button>
+  </div>
+</div>
+
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "battleship";
+const N = 10;
+const SHIPS = [
+  { name: "Carrier",    size: 5 },
+  { name: "Battleship", size: 4 },
+  { name: "Cruiser",    size: 3 },
+  { name: "Submarine",  size: 3 },
+  { name: "Destroyer",  size: 2 },
+];
+
+let saved = GG.load(SLUG, { matches: 0, p1Wins: 0, p2Wins: 0 }) || {};
+saved = Object.assign({ matches: 0, p1Wins: 0, p2Wins: 0 }, saved);
+
+const wrap = document.getElementById("wrap");
+const phaseLabel = document.getElementById("phaseLabel");
+const msgEl = document.getElementById("msg");
+const overlay = document.getElementById("overlay");
+const ovTitle = document.getElementById("ovTitle");
+const ovBody  = document.getElementById("ovBody");
+const ovBtn   = document.getElementById("ovBtn");
+
+let phase;          // "place1" | "place2" | "battle1" | "battle2" | "done"
+let active;         // 1 or 2
+let boards;         // boards[1], boards[2] each: { grid, ships, shots }
+let placeOrient = "h";
+let placeIdx = 0;
+let hover = null;
+
+function emptyBoard() {
+  return {
+    grid: Array.from({ length: N }, () => Array(N).fill(null)), // null or {shipIdx}
+    ships: [],   // {idx, name, size, cells: [{r,c,hit:false}]}
+    shots: Array.from({ length: N }, () => Array(N).fill(0)),  // 0 none, 1 miss, 2 hit
+  };
+}
+
+function newGame() {
+  boards = { 1: emptyBoard(), 2: emptyBoard() };
+  active = 1;
+  placeIdx = 0;
+  placeOrient = "h";
+  phase = "place1";
+  showOverlay("Player 1 — place your ships",
+    "When ready, hide the screen from Player 2 before placing.",
+    () => render());
+}
+
+function shipBlocks(r, c, size, orient) {
+  const out = [];
+  for (let i = 0; i < size; i++) {
+    if (orient === "h") out.push({ r, c: c + i });
+    else out.push({ r: r + i, c });
+  }
+  return out;
+}
+
+function canPlace(board, cells) {
+  for (const { r, c } of cells) {
+    if (r < 0 || r >= N || c < 0 || c >= N) return false;
+    if (board.grid[r][c] !== null) return false;
+  }
+  return true;
+}
+
+function placeShip(board, cells, idx, name, size) {
+  const ship = { idx, name, size, cells: cells.map(({ r, c }) => ({ r, c, hit: false })) };
+  for (const { r, c } of cells) board.grid[r][c] = idx;
+  board.ships.push(ship);
+}
+
+function render() {
+  wrap.innerHTML = "";
+  if (phase === "place1" || phase === "place2") {
+    renderPlacement();
+  } else if (phase === "battle1" || phase === "battle2") {
+    renderBattle();
+  } else if (phase === "done") {
+    renderDone();
+  }
+}
+
+function renderPlacement() {
+  const me = active;
+  const board = boards[me];
+  phaseLabel.textContent = `P${me} placing ships (${SHIPS.length - placeIdx} left)`;
+  const fleetCol = document.createElement("div");
+  fleetCol.className = "bs-section";
+  fleetCol.innerHTML = `<h3>Player ${me}</h3>
+    <div class="bs-fleet">${SHIPS.map((s, i) => `<div class="${i < placeIdx ? "placed" : ""}">${s.name} (${s.size})</div>`).join("")}</div>
+    <p style="margin-top:10px;font-size:12px;color:var(--text-dim);">Click a square to place. Press R or right-click anywhere to rotate.</p>`;
+
+  const boardCol = document.createElement("div");
+  boardCol.className = "bs-section";
+  boardCol.innerHTML = `<h3>Your grid</h3>`;
+  const grid = document.createElement("div");
+  grid.className = "bs-board";
+  grid.addEventListener("contextmenu", (e) => { e.preventDefault(); placeOrient = placeOrient === "h" ? "v" : "h"; render(); });
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const cell = document.createElement("div");
+    cell.className = "bs-cell";
+    if (board.grid[r][c] !== null) cell.classList.add("ship");
+    cell.dataset.r = r; cell.dataset.c = c;
+    cell.addEventListener("mouseenter", () => { hover = { r, c }; updatePreview(grid); });
+    cell.addEventListener("mouseleave", () => { hover = null; updatePreview(grid); });
+    cell.addEventListener("click", () => onPlaceClick(r, c));
+    grid.appendChild(cell);
+  }
+  boardCol.appendChild(grid);
+  wrap.appendChild(fleetCol);
+  wrap.appendChild(boardCol);
+}
+
+function updatePreview(grid) {
+  const cells = grid.children;
+  for (const el of cells) el.classList.remove("preview", "invalid");
+  if (!hover || placeIdx >= SHIPS.length) return;
+  const ship = SHIPS[placeIdx];
+  const blocks = shipBlocks(hover.r, hover.c, ship.size, placeOrient);
+  const ok = canPlace(boards[active], blocks);
+  for (const { r, c } of blocks) {
+    if (r < 0 || r >= N || c < 0 || c >= N) continue;
+    cells[r * N + c].classList.add(ok ? "preview" : "invalid");
+  }
+}
+
+function onPlaceClick(r, c) {
+  if (placeIdx >= SHIPS.length) return;
+  const ship = SHIPS[placeIdx];
+  const blocks = shipBlocks(r, c, ship.size, placeOrient);
+  if (!canPlace(boards[active], blocks)) return;
+  placeShip(boards[active], blocks, placeIdx, ship.name, ship.size);
+  placeIdx++;
+  if (placeIdx >= SHIPS.length) {
+    if (phase === "place1") {
+      phase = "place2"; active = 2; placeIdx = 0; placeOrient = "h";
+      showOverlay("Pass to Player 2",
+        "Hand the device to Player 2. Player 1, look away.",
+        () => render());
+    } else {
+      phase = "battle1"; active = 1;
+      showOverlay("Pass to Player 1",
+        "Player 1 takes the first shot.",
+        () => render());
+    }
+    return;
+  }
+  render();
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() === "r" && (phase === "place1" || phase === "place2")) {
+    placeOrient = placeOrient === "h" ? "v" : "h";
+    render();
+  }
+});
+
+function renderBattle() {
+  const me = active;
+  const opp = me === 1 ? 2 : 1;
+  phaseLabel.textContent = `Player ${me}'s turn`;
+
+  const myBoard = boards[me];
+  const oppBoard = boards[opp];
+  const myCol = document.createElement("div");
+  myCol.className = "bs-section";
+  myCol.innerHTML = `<h3>Your fleet</h3>`;
+  const myGrid = document.createElement("div"); myGrid.className = "bs-board";
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const cell = document.createElement("div");
+    cell.className = "bs-cell locked";
+    if (myBoard.grid[r][c] !== null) cell.classList.add("ship");
+    // overlay opponent's shots on me
+    const incoming = oppBoard.shots[r][c];
+    if (incoming === 1) cell.classList.add("miss");
+    if (incoming === 2) {
+      const ship = myBoard.ships[myBoard.grid[r][c]];
+      cell.classList.add(ship && ship.cells.every((x) => x.hit) ? "sunk" : "hit");
+    }
+    myGrid.appendChild(cell);
+  }
+  myCol.appendChild(myGrid);
+
+  const oppCol = document.createElement("div");
+  oppCol.className = "bs-section";
+  oppCol.innerHTML = `<h3>Enemy waters — click to fire</h3>`;
+  const oppGrid = document.createElement("div"); oppGrid.className = "bs-board";
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const cell = document.createElement("div");
+    cell.className = "bs-cell";
+    const shot = myBoard.shots[r][c];
+    if (shot === 1) { cell.classList.add("miss", "locked"); cell.textContent = "·"; }
+    if (shot === 2) {
+      const ship = oppBoard.ships[oppBoard.grid[r][c]];
+      const sunk = ship && ship.cells.every((x) => x.hit);
+      cell.classList.add(sunk ? "sunk" : "hit", "locked");
+      cell.textContent = sunk ? "✱" : "✕";
+    }
+    if (!shot) cell.addEventListener("click", () => fireAt(r, c));
+    oppGrid.appendChild(cell);
+  }
+  oppCol.appendChild(oppGrid);
+
+  // remaining ships indicator
+  const oppRem = oppBoard.ships.filter((s) => s.cells.some((c) => !c.hit)).length;
+  oppCol.insertAdjacentHTML("beforeend",
+    `<p style="margin-top:10px;font-size:12px;color:var(--text-dim);">${oppRem} enemy ship${oppRem === 1 ? "" : "s"} still afloat</p>`);
+
+  wrap.appendChild(myCol);
+  wrap.appendChild(oppCol);
+}
+
+function fireAt(r, c) {
+  const me = active;
+  const opp = me === 1 ? 2 : 1;
+  const myBoard = boards[me];
+  const oppBoard = boards[opp];
+  if (myBoard.shots[r][c]) return;
+  const shipIdx = oppBoard.grid[r][c];
+  let resultMsg;
+  if (shipIdx === null) {
+    myBoard.shots[r][c] = 1;
+    resultMsg = `P${me} fired at ${col(c)}${r + 1} — miss.`;
+  } else {
+    myBoard.shots[r][c] = 2;
+    const ship = oppBoard.ships[shipIdx];
+    const cell = ship.cells.find((x) => x.r === r && x.c === c);
+    if (cell) cell.hit = true;
+    if (ship.cells.every((x) => x.hit)) {
+      resultMsg = `P${me} sunk the ${ship.name}!`;
+    } else {
+      resultMsg = `P${me} hit at ${col(c)}${r + 1}.`;
+    }
+  }
+  // win check
+  const remaining = oppBoard.ships.filter((s) => s.cells.some((x) => !x.hit)).length;
+  if (remaining === 0) {
+    phase = "done";
+    if (me === 1) saved.p1Wins++; else saved.p2Wins++;
+    saved.matches++;
+    GG.save(SLUG, saved);
+    msgEl.textContent = `Player ${me} wins! ${resultMsg}`;
+    render();
+    return;
+  }
+  msgEl.textContent = resultMsg;
+  // pass to opponent
+  active = opp;
+  phase = me === 1 ? "battle2" : "battle1";
+  showOverlay(`Pass to Player ${opp}`, resultMsg, () => render());
+}
+
+function col(c) { return "ABCDEFGHIJ"[c]; }
+
+function renderDone() {
+  phaseLabel.textContent = "Match over";
+  const div = document.createElement("div");
+  div.className = "bs-section";
+  div.style.textAlign = "center";
+  const winner = boards[1].ships.every((s) => s.cells.every((x) => x.hit)) ? 2 : 1;
+  div.innerHTML = `<h3>Player ${winner} wins!</h3>
+    <p style="color:var(--text-dim);">P1: ${saved.p1Wins} wins · P2: ${saved.p2Wins} wins · ${saved.matches} matches.</p>`;
+  wrap.appendChild(div);
+}
+
+function showOverlay(title, body, onReady) {
+  ovTitle.textContent = title;
+  ovBody.textContent = body;
+  overlay.style.display = "grid";
+  ovBtn.onclick = () => { overlay.style.display = "none"; onReady(); };
+}
+
+document.getElementById("play").addEventListener("click", newGame);
+newGame();
+</script>
+</body>
+</html>

@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Checkers</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .ch-board {
+    display: grid;
+    grid-template-columns: repeat(8, 56px);
+    grid-template-rows: repeat(8, 56px);
+    border: 6px solid #2a335a;
+    border-radius: 10px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    overflow: hidden;
+  }
+  .ch-cell { width: 56px; height: 56px; display: grid; place-items: center; cursor: pointer; position: relative; }
+  .ch-cell.dark  { background: #5a4ec6; }
+  .ch-cell.light { background: #cbd5e1; cursor: default; }
+  .ch-cell.sel   { outline: 3px solid #fcd34d; outline-offset: -3px; }
+  .ch-cell.target::before {
+    content: ""; width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(252,211,77,0.85);
+  }
+  .ch-piece {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    box-shadow: inset 0 -4px 6px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3);
+  }
+  .ch-piece.p1 { background: radial-gradient(circle at 35% 30%, #fb7185, #b91c1c); }
+  .ch-piece.p2 { background: radial-gradient(circle at 35% 30%, #1f2937, #0a0a0a); }
+  .ch-piece.king::after {
+    content: "♛";
+    color: #fcd34d;
+    font-size: 22px;
+    position: absolute;
+  }
+  .ch-turn { display: flex; align-items: center; gap: 8px; }
+  .ch-puck { width: 18px; height: 18px; border-radius: 50%; }
+  .ch-puck.p1 { background: radial-gradient(circle at 35% 30%, #fb7185, #b91c1c); }
+  .ch-puck.p2 { background: radial-gradient(circle at 35% 30%, #1f2937, #0a0a0a); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span class="ch-turn"><span class="ch-puck p1" id="puck"></span><strong id="turn">Player 1</strong> to move</span>
+    <span>P1 wins: <strong id="p1">0</strong></span>
+    <span>P2 wins: <strong id="p2">0</strong></span>
+    <button class="game-btn primary" id="play">New game</button>
+  </div>
+  <div id="board" class="ch-board"></div>
+  <div class="game-message" id="msg">Click your piece, then click a highlighted square. Captures are mandatory.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "checkers";
+let saved = GG.load(SLUG, { p1Wins: 0, p2Wins: 0, draws: 0 }) || {};
+saved = Object.assign({ p1Wins: 0, p2Wins: 0, draws: 0 }, saved);
+
+// 0 empty, 1 P1, 2 P2, 3 P1 king, 4 P2 king
+let board, turn, selected, mustContinueFrom, over;
+
+const boardEl = document.getElementById("board");
+const turnEl = document.getElementById("turn");
+const puck = document.getElementById("puck");
+const p1El = document.getElementById("p1");
+const p2El = document.getElementById("p2");
+const msgEl = document.getElementById("msg");
+
+function newGame() {
+  board = Array.from({ length: 8 }, () => Array(8).fill(0));
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 8; c++) {
+    if ((r + c) % 2 === 1) board[r][c] = 2;  // P2 starts at top
+  }
+  for (let r = 5; r < 8; r++) for (let c = 0; c < 8; c++) {
+    if ((r + c) % 2 === 1) board[r][c] = 1;
+  }
+  turn = 1; selected = null; mustContinueFrom = null; over = false;
+  msgEl.textContent = "Click your piece, then click a highlighted square. Captures are mandatory.";
+  render();
+}
+
+function ownerOf(v) { return v === 1 || v === 3 ? 1 : v === 2 || v === 4 ? 2 : 0; }
+function isKing(v) { return v === 3 || v === 4; }
+
+function moveDirs(v) {
+  // P1 moves up (-1), P2 moves down (+1); kings move both
+  if (v === 1) return [[-1, -1], [-1, 1]];
+  if (v === 2) return [[1, -1], [1, 1]];
+  if (v === 3 || v === 4) return [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+  return [];
+}
+
+function inBounds(r, c) { return r >= 0 && r < 8 && c >= 0 && c < 8; }
+
+function legalMovesFor(r, c) {
+  const v = board[r][c];
+  const owner = ownerOf(v);
+  if (!owner) return { simple: [], jumps: [] };
+  const simple = [], jumps = [];
+  for (const [dr, dc] of moveDirs(v)) {
+    const r1 = r + dr, c1 = c + dc;
+    const r2 = r + dr * 2, c2 = c + dc * 2;
+    if (inBounds(r1, c1) && board[r1][c1] === 0) simple.push([r1, c1]);
+    if (inBounds(r2, c2) && board[r2][c2] === 0) {
+      const mid = board[r1][c1];
+      if (ownerOf(mid) && ownerOf(mid) !== owner) jumps.push([r2, c2, r1, c1]);
+    }
+  }
+  return { simple, jumps };
+}
+
+function anyJumpAvailable(player) {
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    if (ownerOf(board[r][c]) === player) {
+      const { jumps } = legalMovesFor(r, c);
+      if (jumps.length) return true;
+    }
+  }
+  return false;
+}
+
+function legalDestinations(r, c) {
+  const { simple, jumps } = legalMovesFor(r, c);
+  const owner = ownerOf(board[r][c]);
+  if (mustContinueFrom) {
+    if (mustContinueFrom.r !== r || mustContinueFrom.c !== c) return [];
+    return jumps;
+  }
+  if (anyJumpAvailable(owner)) return jumps;
+  return simple.map((m) => [...m, null, null]); // pad to same shape
+}
+
+function hasAnyMove(player) {
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    if (ownerOf(board[r][c]) === player) {
+      if (legalDestinations(r, c).length) return true;
+    }
+  }
+  return false;
+}
+
+function pieceCount(player) {
+  let n = 0;
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if (ownerOf(board[r][c]) === player) n++;
+  return n;
+}
+
+function render() {
+  boardEl.innerHTML = "";
+  const sel = selected;
+  const dests = sel ? legalDestinations(sel.r, sel.c) : [];
+  const destSet = new Set(dests.map(([r, c]) => r * 8 + c));
+  for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    const cell = document.createElement("div");
+    const dark = (r + c) % 2 === 1;
+    cell.className = "ch-cell " + (dark ? "dark" : "light");
+    if (sel && sel.r === r && sel.c === c) cell.classList.add("sel");
+    if (destSet.has(r * 8 + c)) cell.classList.add("target");
+    cell.dataset.r = r; cell.dataset.c = c;
+    const v = board[r][c];
+    if (v) {
+      const piece = document.createElement("div");
+      piece.className = "ch-piece " + (ownerOf(v) === 1 ? "p1" : "p2") + (isKing(v) ? " king" : "");
+      cell.appendChild(piece);
+    }
+    cell.addEventListener("click", () => onClick(r, c));
+    boardEl.appendChild(cell);
+  }
+  turnEl.textContent = "Player " + turn;
+  puck.className = "ch-puck p" + turn;
+  p1El.textContent = saved.p1Wins;
+  p2El.textContent = saved.p2Wins;
+}
+
+function onClick(r, c) {
+  if (over) return;
+  const v = board[r][c];
+  if (selected) {
+    const dests = legalDestinations(selected.r, selected.c);
+    const hit = dests.find(([dr, dc]) => dr === r && dc === c);
+    if (hit) {
+      const [, , midR, midC] = hit;
+      // execute move
+      const piece = board[selected.r][selected.c];
+      board[selected.r][selected.c] = 0;
+      let captured = false;
+      if (midR != null) { board[midR][midC] = 0; captured = true; }
+      board[r][c] = piece;
+      // king promotion
+      if (piece === 1 && r === 0) board[r][c] = 3;
+      if (piece === 2 && r === 7) board[r][c] = 4;
+      // multi-jump?
+      if (captured) {
+        // re-check from new position; only continue if the same tile (no king-promotion-mid-jump reset)
+        const wasKingBefore = isKing(piece);
+        const stillKing = isKing(board[r][c]);
+        if (wasKingBefore === stillKing && legalMovesFor(r, c).jumps.length) {
+          mustContinueFrom = { r, c };
+          selected = { r, c };
+          render();
+          msgEl.textContent = "Continue jumping with the same piece.";
+          return;
+        }
+      }
+      // end turn
+      mustContinueFrom = null;
+      selected = null;
+      turn = turn === 1 ? 2 : 1;
+      render();
+      checkEnd();
+      return;
+    } else if (ownerOf(v) === turn && !mustContinueFrom) {
+      selected = { r, c };
+      render();
+      return;
+    }
+    selected = null;
+    render();
+    return;
+  }
+  if (mustContinueFrom) return;
+  if (ownerOf(v) === turn) {
+    selected = { r, c };
+    render();
+  }
+}
+
+function checkEnd() {
+  const opp = turn;
+  if (pieceCount(opp) === 0 || !hasAnyMove(opp)) {
+    over = true;
+    const winner = opp === 1 ? 2 : 1;
+    if (winner === 1) saved.p1Wins++; else saved.p2Wins++;
+    GG.save(SLUG, saved);
+    msgEl.textContent = `Player ${winner} wins!`;
+    p1El.textContent = saved.p1Wins; p2El.textContent = saved.p2Wins;
+  }
+}
+
+document.getElementById("play").addEventListener("click", newGame);
+newGame();
+</script>
+</body>
+</html>

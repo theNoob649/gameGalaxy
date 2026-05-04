@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sumo Smash</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>P1 (WASD): <strong id="p1">0</strong></span>
+    <span>P2 (arrows): <strong id="p2">0</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="640" height="500"></canvas>
+  <div class="game-message" id="msg">Push your opponent off the platform. First to 5 wins.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "sumo-smash";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const CX = W / 2, CY = H / 2;
+const RING_R = 200;
+const PLAYER_R = 22;
+const TARGET = 5;
+
+let saved = GG.load(SLUG, { matches: 0, p1Wins: 0, p2Wins: 0 }) || {};
+saved = Object.assign({ matches: 0, p1Wins: 0, p2Wins: 0 }, saved);
+
+const p1El = document.getElementById("p1");
+const p2El = document.getElementById("p2");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+
+const keys = {};
+const KEY_PREVENT = ["arrowup","arrowdown","arrowleft","arrowright"," ","w","a","s","d"];
+window.addEventListener("keydown", (e) => {
+  keys[e.key.toLowerCase()] = true;
+  if (KEY_PREVENT.includes(e.key.toLowerCase())) e.preventDefault();
+});
+window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
+
+let players, p1Score, p2Score, alive, freezeUntil, shake, shakeT;
+
+function makePlayers() {
+  return [
+    { id: 1, x: CX - 80, y: CY, vx: 0, vy: 0, color: "#7c5cff" },
+    { id: 2, x: CX + 80, y: CY, vx: 0, vy: 0, color: "#fb7185" },
+  ];
+}
+
+function newMatch() {
+  players = makePlayers();
+  p1Score = 0; p2Score = 0;
+  p1El.textContent = 0; p2El.textContent = 0;
+  alive = true;
+  shake = 0; shakeT = 0;
+  freezeUntil = performance.now() + 600;
+  msgEl.textContent = "Push your opponent off the platform. First to 5 wins.";
+}
+function newRound() {
+  players = makePlayers();
+  freezeUntil = performance.now() + 700;
+  shakeT = 0;
+}
+
+const ACCEL = 600;
+const FRICTION = 0.92;
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  if (alive && ts >= freezeUntil) {
+    // input
+    if (keys["w"]) players[0].vy -= ACCEL * dt;
+    if (keys["s"]) players[0].vy += ACCEL * dt;
+    if (keys["a"]) players[0].vx -= ACCEL * dt;
+    if (keys["d"]) players[0].vx += ACCEL * dt;
+    if (keys["arrowup"])    players[1].vy -= ACCEL * dt;
+    if (keys["arrowdown"])  players[1].vy += ACCEL * dt;
+    if (keys["arrowleft"])  players[1].vx -= ACCEL * dt;
+    if (keys["arrowright"]) players[1].vx += ACCEL * dt;
+    // friction + integrate
+    for (const p of players) {
+      p.vx *= Math.pow(FRICTION, dt * 60);
+      p.vy *= Math.pow(FRICTION, dt * 60);
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+    // collision
+    const a = players[0], b = players[1];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const minD = PLAYER_R * 2;
+    if (d < minD) {
+      const nx = dx / d, ny = dy / d;
+      const overlap = minD - d;
+      a.x -= nx * overlap / 2; a.y -= ny * overlap / 2;
+      b.x += nx * overlap / 2; b.y += ny * overlap / 2;
+      // exchange velocity along the collision axis (equal-mass elastic 1D)
+      const va = a.vx * nx + a.vy * ny;
+      const vb = b.vx * nx + b.vy * ny;
+      const swap = vb - va;
+      a.vx += swap * nx; a.vy += swap * ny;
+      b.vx -= swap * nx; b.vy -= swap * ny;
+      // bonus push so collisions feel decisive
+      const kick = 30;
+      a.vx -= nx * kick; a.vy -= ny * kick;
+      b.vx += nx * kick; b.vy += ny * kick;
+      const impact = Math.abs(swap);
+      if (impact > 200) { shakeT = 0.18; }
+    }
+    // ring out
+    for (const p of players) {
+      const off = Math.hypot(p.x - CX, p.y - CY) > RING_R + PLAYER_R;
+      if (off) {
+        const winner = (p.id === 1) ? 2 : 1;
+        if (winner === 1) p1Score++; else p2Score++;
+        p1El.textContent = p1Score;
+        p2El.textContent = p2Score;
+        if (p1Score >= TARGET || p2Score >= TARGET) return endMatch();
+        newRound();
+      }
+    }
+    if (shakeT > 0) shakeT -= dt;
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  if (shakeT > 0) {
+    const m = shakeT * 8;
+    ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
+  }
+  // ring
+  ctx.fillStyle = "#3b1d5a";
+  ctx.beginPath(); ctx.arc(CX, CY, RING_R + 12, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#1a2240";
+  ctx.beginPath(); ctx.arc(CX, CY, RING_R, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(CX, CY, RING_R, 0, Math.PI * 2); ctx.stroke();
+  // players
+  for (const p of players) {
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, PLAYER_R, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.font = "bold 18px ui-sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("P" + p.id, p.x, p.y + 6);
+  }
+  ctx.restore();
+}
+
+function endMatch() {
+  alive = false;
+  const winner = p1Score > p2Score ? 1 : 2;
+  if (winner === 1) saved.p1Wins++; else saved.p2Wins++;
+  saved.matches++;
+  GG.save(SLUG, saved);
+  msgEl.textContent = `P${winner} wins ${p1Score}-${p2Score}.`;
+  playBtn.textContent = "Play again";
+}
+
+playBtn.addEventListener("click", () => { newMatch(); playBtn.textContent = "Restart"; });
+newMatch();
+alive = false;
+msgEl.textContent = "Press Play. P1 = WASD · P2 = arrows.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

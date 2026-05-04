@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reaction Duel</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .rd-arena {
+    width: 540px; height: 320px;
+    border-radius: 14px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    overflow: hidden;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    transition: background 0.05s ease;
+  }
+  .rd-side {
+    display: grid; place-items: center;
+    color: white;
+    font-weight: 800;
+    font-size: 22px;
+    border-right: 2px solid rgba(0,0,0,0.2);
+  }
+  .rd-side:last-child { border-right: 0; }
+  .rd-arena.waiting .rd-side { background: #b91c1c; }
+  .rd-arena.go      .rd-side { background: #15803d; }
+  .rd-arena.idle    .rd-side { background: #374151; }
+  .rd-key { font-family: ui-monospace, monospace; font-size: 30px; }
+  .rd-scores { display: flex; gap: 28px; font-size: 16px; }
+  .rd-scores span strong { color: var(--text); font-size: 22px; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <div class="rd-scores">
+      <span>P1: <strong id="p1">0</strong></span>
+      <span>P2: <strong id="p2">0</strong></span>
+    </div>
+    <button class="game-btn primary" id="play">Start match</button>
+  </div>
+  <div class="rd-arena idle" id="arena">
+    <div class="rd-side"><span>Player 1<br><span class="rd-key">A</span></span></div>
+    <div class="rd-side"><span>Player 2<br><span class="rd-key">L</span></span></div>
+  </div>
+  <div class="game-message" id="msg">First to 3 round wins. Hit your key as soon as it turns green.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "reaction-duel";
+const TARGET = 3;
+let saved = GG.load(SLUG, { matchesPlayed: 0, bestRT: null, p1Wins: 0, p2Wins: 0 }) || {};
+saved = Object.assign({ matchesPlayed: 0, bestRT: null, p1Wins: 0, p2Wins: 0 }, saved);
+
+const arena = document.getElementById("arena");
+const p1El = document.getElementById("p1");
+const p2El = document.getElementById("p2");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+
+let p1 = 0, p2 = 0;
+let phase = "idle";  // idle | waiting | go | done
+let goAt = 0;
+let roundTimer = null;
+
+function setPhase(p) {
+  phase = p;
+  arena.className = "rd-arena " + p;
+}
+
+function nextRound() {
+  if (p1 >= TARGET || p2 >= TARGET) return endMatch();
+  setPhase("waiting");
+  msgEl.textContent = "Wait for green…";
+  const delay = 1500 + Math.random() * 3500;
+  roundTimer = setTimeout(() => {
+    setPhase("go");
+    goAt = performance.now();
+    msgEl.textContent = "GO!";
+  }, delay);
+}
+
+function awardRound(winner, loser, reason, rt) {
+  if (winner === 1) p1++;
+  else p2++;
+  p1El.textContent = p1;
+  p2El.textContent = p2;
+  if (rt != null) {
+    if (saved.bestRT == null || rt < saved.bestRT) saved.bestRT = rt;
+    msgEl.textContent = `P${winner} wins the round (${rt} ms${reason ? " · " + reason : ""}).`;
+  } else {
+    msgEl.textContent = `P${winner} wins the round (${reason}).`;
+  }
+  GG.save(SLUG, saved);
+  setPhase("idle");
+  setTimeout(nextRound, 1200);
+}
+
+function endMatch() {
+  setPhase("done");
+  const winner = p1 > p2 ? 1 : 2;
+  if (winner === 1) saved.p1Wins++;
+  else              saved.p2Wins++;
+  saved.matchesPlayed++;
+  GG.save(SLUG, saved);
+  const best = saved.bestRT != null ? ` Best RT ${saved.bestRT} ms.` : "";
+  msgEl.textContent = `P${winner} wins the match ${p1}-${p2}.${best}`;
+  playBtn.textContent = "Play again";
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k !== "a" && k !== "l") return;
+  if (phase === "idle" || phase === "done") return;
+  e.preventDefault();
+  const player = k === "a" ? 1 : 2;
+  const other = player === 1 ? 2 : 1;
+  if (phase === "waiting") {
+    clearTimeout(roundTimer);
+    awardRound(other, player, "false start");
+  } else if (phase === "go") {
+    const rt = Math.round(performance.now() - goAt);
+    awardRound(player, other, "", rt);
+  }
+});
+
+playBtn.addEventListener("click", () => {
+  p1 = 0; p2 = 0;
+  p1El.textContent = 0;
+  p2El.textContent = 0;
+  playBtn.textContent = "Restart";
+  nextRound();
+});
+</script>
+</body>
+</html>

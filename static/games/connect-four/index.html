@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect Four</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .c4-board {
+    background: #1d4ed8;
+    padding: 10px;
+    border-radius: 14px;
+    display: grid;
+    grid-template-columns: repeat(7, 64px);
+    grid-template-rows: repeat(6, 64px);
+    gap: 6px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+  .c4-cell {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: #0a0e1f;
+    box-shadow: inset 0 4px 8px rgba(0,0,0,0.5);
+    cursor: pointer;
+    position: relative;
+  }
+  .c4-cell.p1::after, .c4-cell.p2::after {
+    content: ""; position: absolute; inset: 4px;
+    border-radius: 50%;
+    animation: c4-drop 0.36s cubic-bezier(.5,1.6,.6,1) backwards;
+  }
+  .c4-cell.p1::after { background: radial-gradient(circle at 35% 30%, #f87171, #b91c1c); }
+  .c4-cell.p2::after { background: radial-gradient(circle at 35% 30%, #fcd34d, #b45309); }
+  .c4-cell.win::after { box-shadow: 0 0 0 4px rgba(255,255,255,0.7); }
+  @keyframes c4-drop {
+    from { transform: translateY(-360px); }
+    to   { transform: translateY(0); }
+  }
+  .c4-turn { display: flex; gap: 8px; align-items: center; }
+  .c4-puck { width: 22px; height: 22px; border-radius: 50%; }
+  .c4-puck.p1 { background: radial-gradient(circle at 35% 30%, #f87171, #b91c1c); }
+  .c4-puck.p2 { background: radial-gradient(circle at 35% 30%, #fcd34d, #b45309); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span class="c4-turn"><span class="c4-puck p1" id="puck"></span><strong id="turn">Player 1</strong> to move</span>
+    <span>P1: <strong id="p1">0</strong></span>
+    <span>P2: <strong id="p2">0</strong></span>
+    <button class="game-btn primary" id="play">New game</button>
+  </div>
+  <div id="board" class="c4-board"></div>
+  <div class="game-message" id="msg">Click a column to drop. Four in a row wins.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "connect-four";
+const ROWS = 6, COLS = 7;
+let saved = GG.load(SLUG, { p1Wins: 0, p2Wins: 0, draws: 0 }) || {};
+saved = Object.assign({ p1Wins: 0, p2Wins: 0, draws: 0 }, saved);
+
+const boardEl = document.getElementById("board");
+const turnEl  = document.getElementById("turn");
+const puck    = document.getElementById("puck");
+const p1El    = document.getElementById("p1");
+const p2El    = document.getElementById("p2");
+const msgEl   = document.getElementById("msg");
+
+let board, turn, over;
+
+function newGame() {
+  board = Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+  turn = 1; over = false;
+  msgEl.textContent = "Click a column to drop. Four in a row wins.";
+  render();
+}
+
+function render() {
+  boardEl.innerHTML = "";
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const v = board[r][c];
+    const el = document.createElement("div");
+    el.className = "c4-cell" + (v === 1 ? " p1" : v === 2 ? " p2" : "");
+    el.addEventListener("click", () => drop(c));
+    boardEl.appendChild(el);
+  }
+  turnEl.textContent = "Player " + turn;
+  puck.className = "c4-puck p" + turn;
+  p1El.textContent = saved.p1Wins;
+  p2El.textContent = saved.p2Wins;
+}
+
+function drop(c) {
+  if (over) return;
+  let r = -1;
+  for (let i = ROWS - 1; i >= 0; i--) if (!board[i][c]) { r = i; break; }
+  if (r < 0) return;
+  board[r][c] = turn;
+  render();
+  const win = winFrom(r, c);
+  if (win) {
+    over = true;
+    win.forEach(([wr, wc]) => boardEl.children[wr * COLS + wc].classList.add("win"));
+    if (turn === 1) saved.p1Wins++; else saved.p2Wins++;
+    GG.save(SLUG, saved);
+    msgEl.textContent = `Player ${turn} wins!`;
+    p1El.textContent = saved.p1Wins; p2El.textContent = saved.p2Wins;
+    return;
+  }
+  if (board.every((row) => row.every((v) => v))) {
+    over = true;
+    saved.draws++;
+    GG.save(SLUG, saved);
+    msgEl.textContent = "Draw.";
+    return;
+  }
+  turn = turn === 1 ? 2 : 1;
+  puck.className = "c4-puck p" + turn;
+  turnEl.textContent = "Player " + turn;
+}
+
+function winFrom(r, c) {
+  const v = board[r][c];
+  const dirs = [[0, 1], [1, 0], [1, 1], [1, -1]];
+  for (const [dr, dc] of dirs) {
+    const line = [[r, c]];
+    for (let k = 1; k < 4; k++) {
+      const nr = r + dr * k, nc = c + dc * k;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS || board[nr][nc] !== v) break;
+      line.push([nr, nc]);
+    }
+    for (let k = 1; k < 4; k++) {
+      const nr = r - dr * k, nc = c - dc * k;
+      if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS || board[nr][nc] !== v) break;
+      line.unshift([nr, nc]);
+    }
+    if (line.length >= 4) return line.slice(0, 4);
+  }
+  return null;
+}
+
+document.getElementById("play").addEventListener("click", newGame);
+newGame();
+</script>
+</body>
+</html>

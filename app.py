@@ -153,6 +153,62 @@ GAMES = [
         "blurb": "Place towers along the path. Survive 20 waves.",
         "color": "#dc2626",
     },
+    {
+        "slug": "reaction-duel",
+        "title": "Reaction Duel",
+        "category": "2-Player",
+        "blurb": "Two players, one trigger. Hit your key first when the screen turns green.",
+        "color": "#ef4444",
+    },
+    {
+        "slug": "rock-paper-scissors",
+        "title": "Rock Paper Scissors",
+        "category": "2-Player",
+        "blurb": "Pick simultaneously. Reveal at the same time. Best of 5.",
+        "color": "#10b981",
+    },
+    {
+        "slug": "pong",
+        "title": "Pong",
+        "category": "2-Player",
+        "blurb": "Two paddles, one ball. First to 5.",
+        "color": "#06b6d4",
+    },
+    {
+        "slug": "connect-four",
+        "title": "Connect Four",
+        "category": "2-Player",
+        "blurb": "Drop discs into a 7×6 grid. Four in a row wins.",
+        "color": "#1d4ed8",
+    },
+    {
+        "slug": "sumo-smash",
+        "title": "Sumo Smash",
+        "category": "2-Player",
+        "blurb": "Ram each other off a circular platform. Last one in wins.",
+        "color": "#9333ea",
+    },
+    {
+        "slug": "tank-battle",
+        "title": "Tank Battle",
+        "category": "2-Player",
+        "blurb": "Drive, dodge walls, and shoot. First to 5 kills wins.",
+        "color": "#16a34a",
+    },
+    {
+        "slug": "checkers",
+        "title": "Checkers",
+        "category": "2-Player",
+        "blurb": "Standard American checkers. Captures are mandatory.",
+        "color": "#7c2d12",
+    },
+    {
+        "slug": "battleship",
+        "title": "Battleship",
+        "category": "2-Player",
+        "blurb": "Place 5 ships, then trade shots. Pass-and-play.",
+        "color": "#0f766e",
+    },
 ]
 
 GAMES_BY_SLUG = {g["slug"]: g for g in GAMES}

@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rock Paper Scissors</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .rps-stage {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 18px; width: 100%; max-width: 720px;
+  }
+  .rps-side {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    text-align: center;
+  }
+  .rps-side h2 { margin: 0 0 8px; }
+  .rps-keys { color: var(--text-dim); font-size: 13px; }
+  .rps-pick {
+    margin: 16px auto 8px;
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    display: grid; place-items: center;
+    font-size: 56px;
+  }
+  .rps-pick.ready { border-color: var(--accent); }
+  .rps-status { color: var(--text-dim); font-size: 13px; }
+  .rps-scores { display: flex; gap: 28px; }
+  .rps-scores strong { color: var(--text); font-size: 22px; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <div class="rps-scores">
+      <span>P1: <strong id="p1">0</strong></span>
+      <span>P2: <strong id="p2">0</strong></span>
+    </div>
+    <button class="game-btn primary" id="play">Start match</button>
+  </div>
+  <div class="rps-stage">
+    <div class="rps-side">
+      <h2>Player 1</h2>
+      <div class="rps-keys">A = Rock · S = Paper · D = Scissors</div>
+      <div class="rps-pick" id="pick1">?</div>
+      <div class="rps-status" id="status1">—</div>
+    </div>
+    <div class="rps-side">
+      <h2>Player 2</h2>
+      <div class="rps-keys">J = Rock · K = Paper · L = Scissors</div>
+      <div class="rps-pick" id="pick2">?</div>
+      <div class="rps-status" id="status2">—</div>
+    </div>
+  </div>
+  <div class="game-message" id="msg">First to 3 wins. Pick at the same time — picks stay hidden until reveal.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "rock-paper-scissors";
+const TARGET = 3;
+const ICONS = { rock: "🪨", paper: "📄", scissors: "✂️" };
+
+let saved = GG.load(SLUG, { matchesPlayed: 0, p1Wins: 0, p2Wins: 0, ties: 0 }) || {};
+saved = Object.assign({ matchesPlayed: 0, p1Wins: 0, p2Wins: 0, ties: 0 }, saved);
+
+let p1Pick = null, p2Pick = null, p1 = 0, p2 = 0;
+let active = false;
+
+const pick1 = document.getElementById("pick1");
+const pick2 = document.getElementById("pick2");
+const status1 = document.getElementById("status1");
+const status2 = document.getElementById("status2");
+const p1El = document.getElementById("p1");
+const p2El = document.getElementById("p2");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+
+function reset(newMatch) {
+  if (newMatch) { p1 = 0; p2 = 0; p1El.textContent = 0; p2El.textContent = 0; }
+  p1Pick = null; p2Pick = null;
+  pick1.textContent = "?"; pick1.classList.remove("ready");
+  pick2.textContent = "?"; pick2.classList.remove("ready");
+  status1.textContent = "—"; status2.textContent = "—";
+}
+
+function reveal() {
+  pick1.textContent = ICONS[p1Pick];
+  pick2.textContent = ICONS[p2Pick];
+  let winner = 0;
+  if (p1Pick === p2Pick) winner = 0;
+  else if (
+    (p1Pick === "rock" && p2Pick === "scissors") ||
+    (p1Pick === "paper" && p2Pick === "rock") ||
+    (p1Pick === "scissors" && p2Pick === "paper")
+  ) winner = 1;
+  else winner = 2;
+  if (winner === 0) {
+    saved.ties++;
+    msgEl.textContent = "Tie. Pick again.";
+  } else {
+    if (winner === 1) p1++; else p2++;
+    p1El.textContent = p1; p2El.textContent = p2;
+    msgEl.textContent = `P${winner} wins the round.`;
+  }
+  GG.save(SLUG, saved);
+  if (p1 >= TARGET || p2 >= TARGET) return endMatch();
+  setTimeout(() => { reset(false); msgEl.textContent = "Pick again."; }, 1400);
+}
+
+function endMatch() {
+  active = false;
+  const winner = p1 > p2 ? 1 : 2;
+  if (winner === 1) saved.p1Wins++;
+  else              saved.p2Wins++;
+  saved.matchesPlayed++;
+  GG.save(SLUG, saved);
+  msgEl.textContent = `P${winner} wins the match ${p1}-${p2}.`;
+  playBtn.textContent = "Play again";
+}
+
+window.addEventListener("keydown", (e) => {
+  if (!active) return;
+  const k = e.key.toLowerCase();
+  const m1 = { a: "rock", s: "paper", d: "scissors" };
+  const m2 = { j: "rock", k: "paper", l: "scissors" };
+  if (m1[k]) { p1Pick = m1[k]; pick1.textContent = "?"; pick1.classList.add("ready"); status1.textContent = "ready ✓"; }
+  if (m2[k]) { p2Pick = m2[k]; pick2.textContent = "?"; pick2.classList.add("ready"); status2.textContent = "ready ✓"; }
+  if (p1Pick && p2Pick) {
+    active = false;
+    setTimeout(() => { reveal(); active = true; }, 400);
+  }
+});
+
+playBtn.addEventListener("click", () => {
+  reset(true);
+  active = true;
+  msgEl.textContent = "Both players, pick now!";
+  playBtn.textContent = "Restart";
+});
+</script>
+</body>
+</html>

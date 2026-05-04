@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pong</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>P1 (W/S): <strong id="p1">0</strong></span>
+    <span>P2 (↑/↓): <strong id="p2">0</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="720" height="420"></canvas>
+  <div class="game-message" id="msg">First to 5. P1 = W/S · P2 = arrow keys.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "pong";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const PADDLE_H = 80, PADDLE_W = 12;
+const TARGET = 5;
+
+let saved = GG.load(SLUG, { matches: 0, p1Wins: 0, p2Wins: 0 }) || {};
+saved = Object.assign({ matches: 0, p1Wins: 0, p2Wins: 0 }, saved);
+
+const p1El = document.getElementById("p1");
+const p2El = document.getElementById("p2");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+
+const keys = {};
+window.addEventListener("keydown", (e) => { keys[e.key.toLowerCase()] = true; if (["arrowup","arrowdown"," "].includes(e.key.toLowerCase())) e.preventDefault(); });
+window.addEventListener("keyup",   (e) => { keys[e.key.toLowerCase()] = false; });
+
+let p1y, p2y, p1Score, p2Score, ball, alive, pauseUntil;
+
+function reset(serveTo) {
+  ball = {
+    x: W / 2, y: H / 2,
+    vx: (serveTo === 1 ? -1 : 1) * 280,
+    vy: (Math.random() * 2 - 1) * 180,
+  };
+  pauseUntil = performance.now() + 600;
+}
+
+function newMatch() {
+  p1y = H / 2 - PADDLE_H / 2;
+  p2y = H / 2 - PADDLE_H / 2;
+  p1Score = 0; p2Score = 0;
+  p1El.textContent = 0; p2El.textContent = 0;
+  alive = true;
+  msgEl.textContent = "First to 5. P1 = W/S · P2 = arrow keys.";
+  reset(Math.random() < 0.5 ? 1 : 2);
+}
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  if (alive) {
+    // paddles
+    const paddleSpeed = 380;
+    if (keys["w"]) p1y -= paddleSpeed * dt;
+    if (keys["s"]) p1y += paddleSpeed * dt;
+    if (keys["arrowup"])   p2y -= paddleSpeed * dt;
+    if (keys["arrowdown"]) p2y += paddleSpeed * dt;
+    p1y = Math.max(0, Math.min(H - PADDLE_H, p1y));
+    p2y = Math.max(0, Math.min(H - PADDLE_H, p2y));
+
+    // ball
+    if (ts >= pauseUntil) {
+      ball.x += ball.vx * dt;
+      ball.y += ball.vy * dt;
+      if (ball.y < 8) { ball.y = 8; ball.vy = -ball.vy; }
+      else if (ball.y > H - 8) { ball.y = H - 8; ball.vy = -ball.vy; }
+      // paddle hits
+      if (ball.x < 24 && ball.x > 12 && ball.y >= p1y && ball.y <= p1y + PADDLE_H && ball.vx < 0) {
+        ball.vx = -ball.vx * 1.06;
+        const off = (ball.y - (p1y + PADDLE_H / 2)) / (PADDLE_H / 2);
+        ball.vy = off * 320;
+      }
+      if (ball.x > W - 24 && ball.x < W - 12 && ball.y >= p2y && ball.y <= p2y + PADDLE_H && ball.vx > 0) {
+        ball.vx = -ball.vx * 1.06;
+        const off = (ball.y - (p2y + PADDLE_H / 2)) / (PADDLE_H / 2);
+        ball.vy = off * 320;
+      }
+      // cap speed
+      const sp = Math.hypot(ball.vx, ball.vy);
+      if (sp > 720) { ball.vx *= 720 / sp; ball.vy *= 720 / sp; }
+      // score
+      if (ball.x < -10) { p2Score++; p2El.textContent = p2Score; reset(1); }
+      else if (ball.x > W + 10) { p1Score++; p1El.textContent = p1Score; reset(2); }
+      if (p1Score >= TARGET || p2Score >= TARGET) endMatch();
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  // dashed centerline
+  ctx.strokeStyle = "rgba(243,244,255,0.18)";
+  ctx.setLineDash([8, 12]); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(W / 2, 8); ctx.lineTo(W / 2, H - 8); ctx.stroke();
+  ctx.setLineDash([]);
+  // paddles
+  ctx.fillStyle = "#7c5cff"; ctx.fillRect(12, p1y, PADDLE_W, PADDLE_H);
+  ctx.fillStyle = "#ff6b9d"; ctx.fillRect(W - 12 - PADDLE_W, p2y, PADDLE_W, PADDLE_H);
+  // ball
+  ctx.fillStyle = "#fcd34d";
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, 8, 0, Math.PI * 2); ctx.fill();
+  // big score
+  ctx.fillStyle = "rgba(243,244,255,0.18)";
+  ctx.font = "bold 80px ui-sans-serif,system-ui";
+  ctx.textAlign = "center";
+  ctx.fillText(p1Score, W / 2 - 80, 90);
+  ctx.fillText(p2Score, W / 2 + 80, 90);
+}
+
+function endMatch() {
+  alive = false;
+  const winner = p1Score > p2Score ? 1 : 2;
+  if (winner === 1) saved.p1Wins++; else saved.p2Wins++;
+  saved.matches++;
+  GG.save(SLUG, saved);
+  msgEl.textContent = `P${winner} wins ${p1Score}-${p2Score}.`;
+  playBtn.textContent = "Play again";
+}
+
+playBtn.addEventListener("click", () => { newMatch(); playBtn.textContent = "Restart"; });
+
+newMatch();
+alive = false; // not running until Play
+msgEl.textContent = "Press Play. P1 = W/S · P2 = arrow keys.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tank Battle</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>P1 (WASD + Q): <strong id="p1">0</strong></span>
+    <span>P2 (arrows + /): <strong id="p2">0</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="720" height="480"></canvas>
+  <div class="game-message" id="msg">First to 5 kills wins. Don't shoot yourself.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "tank-battle";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const TARGET = 5;
+const TANK_R = 18;
+const BULLET_R = 4;
+const BULLET_SPEED = 360;
+const COOLDOWN = 0.45;       // seconds
+const FIRE_GRACE = 0.12;     // seconds where own bullet can't damage you
+const MOVE_SPEED = 130;
+const TURN_SPEED = 3.0;
+
+let saved = GG.load(SLUG, { matches: 0, p1Wins: 0, p2Wins: 0 }) || {};
+saved = Object.assign({ matches: 0, p1Wins: 0, p2Wins: 0 }, saved);
+
+const p1El = document.getElementById("p1");
+const p2El = document.getElementById("p2");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+
+const keys = {};
+window.addEventListener("keydown", (e) => {
+  keys[e.key.toLowerCase()] = true;
+  if (["arrowup","arrowdown","arrowleft","arrowright"," ","/"].includes(e.key.toLowerCase())) e.preventDefault();
+});
+window.addEventListener("keyup",   (e) => { keys[e.key.toLowerCase()] = false; });
+
+const WALLS = [
+  { x: 200, y: 100, w: 60, h: 100 },
+  { x: 460, y: 100, w: 60, h: 100 },
+  { x: 200, y: 280, w: 60, h: 100 },
+  { x: 460, y: 280, w: 60, h: 100 },
+  { x: 320, y: 220, w: 80, h: 40 },
+];
+
+let tanks, bullets, p1Score, p2Score, alive, freezeUntil;
+
+function spawnTank(id) {
+  const safe = (id === 1)
+    ? { x: 60,        y: H / 2, angle: 0 }
+    : { x: W - 60,    y: H / 2, angle: Math.PI };
+  return { id, x: safe.x, y: safe.y, angle: safe.angle, cooldown: 0, color: id === 1 ? "#7c5cff" : "#fb7185" };
+}
+
+function newMatch() {
+  tanks = [spawnTank(1), spawnTank(2)];
+  bullets = [];
+  p1Score = 0; p2Score = 0;
+  p1El.textContent = 0; p2El.textContent = 0;
+  alive = true;
+  freezeUntil = performance.now() + 600;
+  msgEl.textContent = "First to 5 kills wins.";
+}
+
+function rectHit(x, y, r, rect) {
+  const cx = Math.max(rect.x, Math.min(x, rect.x + rect.w));
+  const cy = Math.max(rect.y, Math.min(y, rect.y + rect.h));
+  return Math.hypot(x - cx, y - cy) < r;
+}
+
+function tankBlocked(x, y) {
+  if (x - TANK_R < 0 || x + TANK_R > W || y - TANK_R < 0 || y + TANK_R > H) return true;
+  for (const w of WALLS) if (rectHit(x, y, TANK_R, w)) return true;
+  return false;
+}
+
+function fire(t) {
+  if (t.cooldown > 0) return;
+  t.cooldown = COOLDOWN;
+  const vx = Math.cos(t.angle) * BULLET_SPEED;
+  const vy = Math.sin(t.angle) * BULLET_SPEED;
+  bullets.push({
+    x: t.x + Math.cos(t.angle) * (TANK_R + 4),
+    y: t.y + Math.sin(t.angle) * (TANK_R + 4),
+    vx, vy,
+    owner: t.id,
+    age: 0,
+  });
+}
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  if (alive && ts >= freezeUntil) {
+    // P1 controls
+    const t1 = tanks[0];
+    if (keys["a"]) t1.angle -= TURN_SPEED * dt;
+    if (keys["d"]) t1.angle += TURN_SPEED * dt;
+    if (keys["w"]) attemptMove(t1, +1, dt);
+    if (keys["s"]) attemptMove(t1, -1, dt);
+    if (keys["q"]) fire(t1);
+    // P2 controls
+    const t2 = tanks[1];
+    if (keys["arrowleft"])  t2.angle -= TURN_SPEED * dt;
+    if (keys["arrowright"]) t2.angle += TURN_SPEED * dt;
+    if (keys["arrowup"])    attemptMove(t2, +1, dt);
+    if (keys["arrowdown"])  attemptMove(t2, -1, dt);
+    if (keys["/"])          fire(t2);
+    for (const t of tanks) t.cooldown = Math.max(0, t.cooldown - dt);
+
+    // bullets
+    for (const b of bullets.slice()) {
+      b.age += dt;
+      b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.x < 0 || b.x > W || b.y < 0 || b.y > H) {
+        bullets = bullets.filter((x) => x !== b); continue;
+      }
+      let hit = false;
+      for (const w of WALLS) if (rectHit(b.x, b.y, BULLET_R, w)) { hit = true; break; }
+      if (hit) { bullets = bullets.filter((x) => x !== b); continue; }
+      for (const t of tanks) {
+        if (t.id === b.owner && b.age < FIRE_GRACE) continue;
+        if (Math.hypot(b.x - t.x, b.y - t.y) < TANK_R + BULLET_R) {
+          // kill
+          if (t.id === 1) p2Score++; else p1Score++;
+          p1El.textContent = p1Score; p2El.textContent = p2Score;
+          bullets = [];
+          tanks = [spawnTank(1), spawnTank(2)];
+          freezeUntil = performance.now() + 700;
+          if (p1Score >= TARGET || p2Score >= TARGET) return endMatch();
+          break;
+        }
+      }
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function attemptMove(t, dir, dt) {
+  const nx = t.x + Math.cos(t.angle) * MOVE_SPEED * dt * dir;
+  const ny = t.y + Math.sin(t.angle) * MOVE_SPEED * dt * dir;
+  if (!tankBlocked(nx, t.y)) t.x = nx;
+  if (!tankBlocked(t.x, ny)) t.y = ny;
+  // tank-vs-tank push
+  const other = tanks.find((o) => o !== t);
+  const d = Math.hypot(t.x - other.x, t.y - other.y);
+  if (d < TANK_R * 2) {
+    const nxv = (t.x - other.x) / (d || 1);
+    const nyv = (t.y - other.y) / (d || 1);
+    t.x = other.x + nxv * TANK_R * 2;
+    t.y = other.y + nyv * TANK_R * 2;
+  }
+}
+
+function draw() {
+  ctx.fillStyle = "#1f3a1f";
+  ctx.fillRect(0, 0, W, H);
+  // checker
+  ctx.fillStyle = "rgba(0,0,0,0.06)";
+  for (let r = 0; r < 16; r++) for (let c = 0; c < 24; c++) {
+    if ((r + c) % 2 === 0) ctx.fillRect(c * 30, r * 30, 30, 30);
+  }
+  // walls
+  ctx.fillStyle = "#1f2937";
+  for (const w of WALLS) ctx.fillRect(w.x, w.y, w.w, w.h);
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.lineWidth = 2;
+  for (const w of WALLS) ctx.strokeRect(w.x, w.y, w.w, w.h);
+  // tanks
+  for (const t of tanks) {
+    ctx.save();
+    ctx.translate(t.x, t.y); ctx.rotate(t.angle);
+    ctx.fillStyle = t.color;
+    ctx.fillRect(-TANK_R + 2, -TANK_R + 4, TANK_R * 2 - 4, TANK_R * 2 - 8);
+    ctx.fillStyle = "#0a0e1f";
+    ctx.fillRect(-2, -3, TANK_R + 12, 6); // barrel
+    ctx.fillStyle = "rgba(255,255,255,0.25)";
+    ctx.fillRect(-TANK_R + 2, -TANK_R + 4, 4, TANK_R * 2 - 8);
+    ctx.fillRect(TANK_R - 6, -TANK_R + 4, 4, TANK_R * 2 - 8);
+    ctx.restore();
+  }
+  // bullets
+  ctx.fillStyle = "#fcd34d";
+  for (const b of bullets) {
+    ctx.beginPath(); ctx.arc(b.x, b.y, BULLET_R, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function endMatch() {
+  alive = false;
+  const winner = p1Score > p2Score ? 1 : 2;
+  if (winner === 1) saved.p1Wins++; else saved.p2Wins++;
+  saved.matches++;
+  GG.save(SLUG, saved);
+  msgEl.textContent = `P${winner} wins ${p1Score}-${p2Score}.`;
+  playBtn.textContent = "Play again";
+}
+
+playBtn.addEventListener("click", () => { newMatch(); playBtn.textContent = "Restart"; });
+newMatch();
+alive = false;
+msgEl.textContent = "Press Play. P1 = WASD + Q · P2 = arrows + /.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
