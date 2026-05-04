@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>2048</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .tfe-board {
+    position: relative;
+    width: 360px; height: 360px;
+    background: var(--border);
+    padding: 0;
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .tfe-cell {
+    position: absolute;
+    width: 80px; height: 80px;
+    background: var(--panel);
+    border-radius: 10px;
+  }
+  .tfe-tile {
+    position: absolute;
+    width: 80px; height: 80px;
+    background: var(--panel);
+    border-radius: 10px;
+    display: grid; place-items: center;
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text);
+    transition: transform 120ms ease-in-out, background 120ms ease-out;
+    z-index: 2;
+    will-change: transform;
+  }
+  .tfe-tile.spawning {
+    animation: tfe-spawn 160ms ease-out;
+  }
+  .tfe-tile.merging {
+    animation: tfe-merge 160ms ease-out;
+  }
+  @keyframes tfe-spawn {
+    from { transform: var(--pos) scale(0.1); opacity: 0; }
+    to   { transform: var(--pos) scale(1);   opacity: 1; }
+  }
+  @keyframes tfe-merge {
+    0%   { transform: var(--pos) scale(1);    }
+    50%  { transform: var(--pos) scale(1.18); }
+    100% { transform: var(--pos) scale(1);    }
+  }
+  .v2 { background: #2c3460; }
+  .v4 { background: #3a3a8c; }
+  .v8 { background: #5a4ec6; color: white; }
+  .v16 { background: #7a5cff; color: white; }
+  .v32 { background: #b15cff; color: white; }
+  .v64 { background: #ff6b9d; color: white; }
+  .v128 { background: #ff8a53; color: white; font-size: 24px; }
+  .v256 { background: #ffb347; color: white; font-size: 24px; }
+  .v512 { background: #ffd166; color: #1a1a1a; font-size: 24px; }
+  .v1024 { background: #f6e27a; color: #1a1a1a; font-size: 22px; }
+  .v2048 { background: linear-gradient(135deg, #ffd166, #ff6b9d); color: white; font-size: 22px; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="newGame">New game</button>
+  </div>
+  <div id="board" class="tfe-board"></div>
+  <div class="game-message" id="msg">Arrow keys / swipe to merge tiles.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "twenty-forty-eight";
+const N = 4;
+const CELL = 80;
+const GAP = 8;
+const PAD = 8;
+const ANIM_MS = 130;
+
+const persisted = GG.load(SLUG, { best: 0, grid: null, score: 0 }) || { best: 0 };
+let best = persisted.best || 0;
+let score = 0;
+
+const boardEl = document.getElementById("board");
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+
+// background cells
+for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+  const cell = document.createElement("div");
+  cell.className = "tfe-cell";
+  cell.style.left = (PAD + c * (CELL + GAP)) + "px";
+  cell.style.top  = (PAD + r * (CELL + GAP)) + "px";
+  boardEl.appendChild(cell);
+}
+
+let tiles = [];     // {id, value, r, c, el, mergedFrom: null|otherId}
+let nextId = 1;
+let busy = false;
+
+function posTransform(r, c) {
+  const x = PAD + c * (CELL + GAP);
+  const y = PAD + r * (CELL + GAP);
+  return `translate(${x}px, ${y}px)`;
+}
+
+function styleTile(t) {
+  t.el.className = "tfe-tile v" + t.value;
+  t.el.textContent = t.value;
+  t.el.style.setProperty("--pos", posTransform(t.r, t.c));
+  t.el.style.transform = posTransform(t.r, t.c);
+}
+
+function spawnTile(r, c, value) {
+  const id = nextId++;
+  const el = document.createElement("div");
+  el.className = "tfe-tile v" + value + " spawning";
+  el.textContent = value;
+  el.style.setProperty("--pos", posTransform(r, c));
+  el.style.transform = posTransform(r, c);
+  boardEl.appendChild(el);
+  el.addEventListener("animationend", () => el.classList.remove("spawning"), { once: true });
+  const t = { id, value, r, c, el };
+  tiles.push(t);
+  return t;
+}
+
+function tileAt(r, c) {
+  return tiles.find((t) => t.r === r && t.c === c);
+}
+
+function emptyCells() {
+  const out = [];
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    if (!tileAt(r, c)) out.push([r, c]);
+  }
+  return out;
+}
+
+function addRandom() {
+  const empties = emptyCells();
+  if (!empties.length) return;
+  const [r, c] = empties[Math.floor(Math.random() * empties.length)];
+  spawnTile(r, c, Math.random() < 0.9 ? 2 : 4);
+}
+
+function newGame() {
+  for (const t of tiles) t.el.remove();
+  tiles = [];
+  score = 0;
+  scoreEl.textContent = 0;
+  msgEl.textContent = "Arrow keys / swipe to merge tiles.";
+  addRandom(); addRandom();
+  persist();
+}
+
+function persist() {
+  // serialize tiles into a grid
+  const g = Array.from({ length: N }, () => Array(N).fill(0));
+  for (const t of tiles) g[t.r][t.c] = t.value;
+  GG.save(SLUG, { best, grid: g, score });
+}
+
+// Direction → traversal order so we always slide tiles toward the wall first.
+function traversal(direction) {
+  const rs = [], cs = [];
+  for (let i = 0; i < N; i++) { rs.push(i); cs.push(i); }
+  if (direction === "down")  rs.reverse();
+  if (direction === "right") cs.reverse();
+  return { rs, cs };
+}
+
+function vectorOf(direction) {
+  return { left: [0, -1], right: [0, 1], up: [-1, 0], down: [1, 0] }[direction];
+}
+
+function farthestEmpty(r, c, dr, dc, occupancy) {
+  let nr = r, nc = c;
+  while (true) {
+    const tr = nr + dr, tc = nc + dc;
+    if (tr < 0 || tr >= N || tc < 0 || tc >= N) break;
+    if (occupancy[tr][tc]) break;
+    nr = tr; nc = tc;
+  }
+  // also report the next cell beyond, for merge consideration
+  return { r: nr, c: nc, nextR: nr + dr, nextC: nc + dc };
+}
+
+function move(direction) {
+  if (busy) return;
+  const [dr, dc] = vectorOf(direction);
+  const { rs, cs } = traversal(direction);
+  // occupancy keyed by current target positions during planning
+  const occupancy = Array.from({ length: N }, () => Array(N).fill(null));
+  for (const t of tiles) occupancy[t.r][t.c] = t;
+
+  const merges = []; // {keep: tile, into: tile}  — into is moved on top of keep then removed
+  let changed = false;
+  let gained = 0;
+
+  // process in traversal order
+  for (const r of rs) for (const c of cs) {
+    const tile = occupancy[r][c];
+    if (!tile) continue;
+    const f = farthestEmpty(r, c, dr, dc, occupancy);
+    const nextTile = (f.nextR >= 0 && f.nextR < N && f.nextC >= 0 && f.nextC < N)
+      ? occupancy[f.nextR][f.nextC]
+      : null;
+
+    if (nextTile && nextTile.value === tile.value && !nextTile.mergedThisTurn) {
+      // merge tile into nextTile
+      occupancy[r][c] = null;
+      // tile slides on top of nextTile's cell
+      tile.r = nextTile.r; tile.c = nextTile.c;
+      // nextTile keeps its position; tile element gets removed after slide
+      merges.push({ keep: nextTile, into: tile });
+      nextTile.mergedThisTurn = true;
+      changed = true;
+    } else if (f.r !== r || f.c !== c) {
+      occupancy[r][c] = null;
+      occupancy[f.r][f.c] = tile;
+      tile.r = f.r; tile.c = f.c;
+      changed = true;
+    }
+  }
+
+  if (!changed) return;
+  busy = true;
+
+  // animate slides
+  for (const t of tiles) {
+    t.el.style.setProperty("--pos", posTransform(t.r, t.c));
+    t.el.style.transform = posTransform(t.r, t.c);
+  }
+
+  setTimeout(() => {
+    // resolve merges
+    for (const { keep, into } of merges) {
+      keep.value *= 2;
+      gained += keep.value;
+      if (keep.value > best) best = keep.value > best ? best : best; // (best tracked by score, not tile)
+      // remove the moving tile; keep gets a pop
+      into.el.remove();
+      tiles = tiles.filter((t) => t.id !== into.id);
+      keep.el.classList.remove("merging");
+      // force reflow so the animation restarts on repeat merges
+      void keep.el.offsetWidth;
+      keep.el.classList.add("merging");
+      keep.el.addEventListener("animationend", () => keep.el.classList.remove("merging"), { once: true });
+      keep.mergedThisTurn = false;
+      styleTile(keep);
+    }
+    score += gained;
+    if (score > best) best = score;
+    scoreEl.textContent = score;
+    bestEl.textContent = best;
+    addRandom();
+    persist();
+    busy = false;
+    if (!hasMoves()) {
+      msgEl.textContent = `Game over. Score ${score}. Best ${best}.`;
+    } else if (tiles.some((t) => t.value === 2048)) {
+      msgEl.textContent = `You hit 2048! Keep going.`;
+    }
+  }, ANIM_MS);
+}
+
+function hasMoves() {
+  if (emptyCells().length) return true;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const t = tileAt(r, c);
+    if (!t) continue;
+    for (const [dr, dc] of [[0, 1], [1, 0]]) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < N && nc < N) {
+        const nb = tileAt(nr, nc);
+        if (nb && nb.value === t.value) return true;
+      }
+    }
+  }
+  return false;
+}
+
+window.addEventListener("keydown", (e) => {
+  const map = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+  if (map[e.key]) { e.preventDefault(); move(map[e.key]); }
+});
+let touchStart = null;
+boardEl.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 1) touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+});
+boardEl.addEventListener("touchend", (e) => {
+  if (!touchStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x;
+  const dy = t.clientY - touchStart.y;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+  if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? "right" : "left");
+  else move(dy > 0 ? "down" : "up");
+  touchStart = null;
+});
+document.getElementById("newGame").addEventListener("click", newGame);
+
+bestEl.textContent = best;
+if (persisted.grid && persisted.grid.length === N) {
+  // restore tiles from saved grid
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const v = persisted.grid[r][c];
+    if (v) spawnTile(r, c, v);
+  }
+  score = persisted.score || 0;
+  scoreEl.textContent = score;
+  if (!tiles.length) { addRandom(); addRandom(); }
+} else {
+  newGame();
+}
+</script>
+</body>
+</html>

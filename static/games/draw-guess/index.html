@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drawing & Guess</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .dr-stage {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .dr-tools {
+    display: flex; flex-wrap: wrap; gap: 10px;
+    align-items: center;
+  }
+  .dr-tools label { font-size: 13px; color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+  .dr-tools input[type="color"] { width: 36px; height: 28px; padding: 0; border: 1px solid var(--border); background: transparent; }
+  .dr-tools input[type="range"] { width: 110px; }
+  .dr-tier { display: flex; gap: 6px; }
+  .dr-tier button.active { border-color: var(--accent); }
+  .dr-prompt {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 18px;
+  }
+  .dr-prompt strong { color: var(--accent); text-transform: capitalize; letter-spacing: 0.04em; }
+  .dr-recent {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 6px; max-width: 600px; width: 100%;
+  }
+  .dr-recent-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .dr-recent-card img { width: 100%; border-radius: 4px; display: block; background: white; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Done: <strong id="done">0</strong></span>
+    <span class="dr-tier">
+      <button class="game-btn" data-tier="easy">Easy</button>
+      <button class="game-btn" data-tier="medium">Medium</button>
+      <button class="game-btn" data-tier="hard">Hard</button>
+      <button class="game-btn" data-tier="random">Random</button>
+    </span>
+    <span class="dr-tier">
+      <button class="game-btn" data-mode="casual">Casual</button>
+      <button class="game-btn" data-mode="timed">Timed</button>
+    </span>
+    <span id="timer" style="display:none;">Time: <strong id="time">60</strong>s</span>
+  </div>
+  <div class="dr-prompt">Draw: <strong id="prompt">click "New" to start</strong></div>
+  <canvas id="dr" class="dr-stage" width="600" height="380"></canvas>
+  <div class="dr-tools">
+    <label>Color <input type="color" id="color" value="#1a1a1a"></label>
+    <label>Size <input type="range" id="size" min="1" max="40" value="6"></label>
+    <button class="game-btn" id="erase">Eraser</button>
+    <button class="game-btn" id="clear">Clear</button>
+    <button class="game-btn" id="save">Save PNG</button>
+    <button class="game-btn primary" id="next">New prompt</button>
+  </div>
+  <div class="game-message" id="msg">Pick a tier, then "New prompt" to begin.</div>
+  <div class="dr-recent" id="recent"></div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "draw-guess";
+const PROMPTS = {
+  easy: "cat,dog,sun,moon,star,house,tree,car,fish,hat,boat,ball,flower,apple,banana,cake,cup,key,book,bed,door,leaf,chair,clock,heart,phone,kite,bird,cloud,bowl,pencil,shoe,sock,glove,bone,bus,plane,clock,broom,spoon,bell,fork,nail,box,lamp,cup,mug,wheel,bag,hat,star".split(","),
+  medium: "dragon,library,rocket,sandwich,helmet,castle,wizard,tractor,octopus,spaceship,piano,lighthouse,robot,unicorn,giraffe,igloo,treasure,microscope,volcano,waterfall,hamburger,detective,butterfly,carousel,fireplace,sailboat,scarecrow,toothbrush,umbrella,backpack,binoculars,gondola,glacier,pirate,knight,witch,cathedral,jukebox,kayak,skateboard".split(","),
+  hard: "democracy,gravity,nostalgia,philosophy,procrastination,serendipity,bureaucracy,inflation,evolution,symbolism,relativity,paradox,prejudice,patriotism,ambition,empathy,karma,revolution,renaissance,curiosity,velocity,parable,hypothesis,parable,allegory,intuition,perception,creativity,solitude,euphoria,oblivion,destiny".split(","),
+};
+const TIERS = ["easy", "medium", "hard"];
+
+let saved = GG.load(SLUG, {
+  drawingsCompleted: 0,
+  recentDrawings: [],
+  favoritePrompts: [],
+}) || {};
+saved = Object.assign({ drawingsCompleted: 0, recentDrawings: [], favoritePrompts: [] }, saved);
+
+const cv = document.getElementById("dr");
+const ctx = cv.getContext("2d");
+const colorIn = document.getElementById("color");
+const sizeIn = document.getElementById("size");
+const promptEl = document.getElementById("prompt");
+const msgEl = document.getElementById("msg");
+const doneEl = document.getElementById("done");
+const recentEl = document.getElementById("recent");
+const timerEl = document.getElementById("timer");
+const timeEl = document.getElementById("time");
+
+let drawing = false;
+let last = null;
+let erasing = false;
+let tier = "easy";
+let mode = "casual";
+let currentPrompt = "";
+let timerId = null;
+let timeLeft = 60;
+
+function clearCanvas() {
+  ctx.fillStyle = "white";
+  ctx.fillRect(0, 0, cv.width, cv.height);
+}
+
+function pos(e) {
+  const rect = cv.getBoundingClientRect();
+  const cx = e.touches ? e.touches[0].clientX : e.clientX;
+  const cy = e.touches ? e.touches[0].clientY : e.clientY;
+  return {
+    x: (cx - rect.left) * cv.width / rect.width,
+    y: (cy - rect.top) * cv.height / rect.height,
+  };
+}
+
+function startStroke(e) {
+  e.preventDefault();
+  drawing = true;
+  last = pos(e);
+}
+function moveStroke(e) {
+  if (!drawing) return;
+  e.preventDefault();
+  const p = pos(e);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = erasing ? "white" : colorIn.value;
+  ctx.lineWidth = +sizeIn.value;
+  ctx.beginPath();
+  ctx.moveTo(last.x, last.y);
+  ctx.lineTo(p.x, p.y);
+  ctx.stroke();
+  last = p;
+}
+function endStroke() { drawing = false; last = null; }
+
+cv.addEventListener("mousedown", startStroke);
+cv.addEventListener("mousemove", moveStroke);
+window.addEventListener("mouseup", endStroke);
+cv.addEventListener("touchstart", startStroke, { passive: false });
+cv.addEventListener("touchmove", moveStroke, { passive: false });
+cv.addEventListener("touchend", endStroke);
+
+document.getElementById("clear").addEventListener("click", clearCanvas);
+document.getElementById("erase").addEventListener("click", (e) => {
+  erasing = !erasing;
+  e.target.classList.toggle("primary", erasing);
+});
+document.getElementById("save").addEventListener("click", () => {
+  const a = document.createElement("a");
+  a.href = cv.toDataURL("image/png");
+  a.download = `${currentPrompt || "drawing"}.png`;
+  document.body.appendChild(a); a.click(); a.remove();
+});
+
+document.querySelectorAll('[data-tier]').forEach((b) => {
+  b.addEventListener("click", () => {
+    tier = b.dataset.tier;
+    document.querySelectorAll('[data-tier]').forEach((x) => x.classList.toggle("active", x === b));
+  });
+});
+document.querySelector('[data-tier="easy"]').classList.add("active");
+document.querySelectorAll('[data-mode]').forEach((b) => {
+  b.addEventListener("click", () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle("active", x === b));
+    timerEl.style.display = mode === "timed" ? "inline" : "none";
+  });
+});
+document.querySelector('[data-mode="casual"]').classList.add("active");
+
+document.getElementById("next").addEventListener("click", () => {
+  // record current drawing if there was one
+  if (currentPrompt) finishDrawing();
+  pickPrompt();
+  clearCanvas();
+  if (mode === "timed") startTimer();
+  else stopTimer();
+});
+
+function pickPrompt() {
+  const t = tier === "random" ? TIERS[Math.floor(Math.random() * TIERS.length)] : tier;
+  const list = PROMPTS[t];
+  currentPrompt = list[Math.floor(Math.random() * list.length)];
+  promptEl.textContent = currentPrompt;
+  msgEl.textContent = `${t.toUpperCase()}: draw it your way.`;
+}
+
+function startTimer() {
+  stopTimer();
+  timeLeft = 60;
+  timeEl.textContent = timeLeft;
+  timerId = setInterval(() => {
+    timeLeft--;
+    timeEl.textContent = timeLeft;
+    if (timeLeft <= 0) {
+      finishDrawing();
+      pickPrompt();
+      clearCanvas();
+      timeLeft = 60;
+    }
+  }, 1000);
+}
+function stopTimer() { if (timerId) clearInterval(timerId); timerId = null; }
+
+function finishDrawing() {
+  saved.drawingsCompleted++;
+  // tiny thumbnail to keep storage small (~80x50)
+  const thumb = document.createElement("canvas");
+  thumb.width = 80; thumb.height = 50;
+  const tctx = thumb.getContext("2d");
+  tctx.drawImage(cv, 0, 0, 80, 50);
+  const url = thumb.toDataURL("image/png");
+  saved.recentDrawings.unshift({ word: currentPrompt, img: url });
+  saved.recentDrawings = saved.recentDrawings.slice(0, 10);
+  GG.save(SLUG, saved);
+  doneEl.textContent = saved.drawingsCompleted;
+  msgEl.textContent = `Saved "${currentPrompt}" to your recent drawings.`;
+  renderRecent();
+}
+
+function renderRecent() {
+  recentEl.innerHTML = "";
+  for (const d of saved.recentDrawings) {
+    const card = document.createElement("div");
+    card.className = "dr-recent-card";
+    card.innerHTML = `<img src="${d.img}" alt="${d.word}"><div>${d.word}</div>`;
+    recentEl.appendChild(card);
+  }
+}
+
+clearCanvas();
+doneEl.textContent = saved.drawingsCompleted;
+renderRecent();
+</script>
+</body>
+</html>

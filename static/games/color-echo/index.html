@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Color Echo</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .ce-modes { display: flex; gap: 6px; }
+  .ce-modes button.active { border-color: var(--accent); }
+  .ce-board {
+    width: 360px; height: 360px;
+    border-radius: 50%;
+    background: var(--panel);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    overflow: hidden;
+    position: relative;
+  }
+  .ce-pad {
+    cursor: pointer;
+    transition: filter 0.06s ease;
+    position: relative;
+  }
+  .ce-pad:hover:not(.locked) { filter: brightness(1.15); }
+  .ce-pad.lit { filter: brightness(1.7) saturate(1.4); }
+  .ce-pad.locked { cursor: default; }
+  .ce-pad-0 { background: #34d399; border-bottom-right-radius: 100%; }
+  .ce-pad-1 { background: #f87171; border-bottom-left-radius: 100%; }
+  .ce-pad-2 { background: #fcd34d; border-top-right-radius: 100%; }
+  .ce-pad-3 { background: #60a5fa; border-top-left-radius: 100%; }
+  .ce-center {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 110px; height: 110px;
+    background: var(--bg);
+    border-radius: 50%;
+    border: 4px solid var(--border);
+    display: grid; place-items: center;
+    text-align: center; font-weight: 800;
+    color: var(--text); font-size: 14px;
+    line-height: 1.2;
+  }
+  .ce-center small { display: block; font-weight: 500; color: var(--text-dim); font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <div class="ce-modes">
+      <button class="game-btn" data-mode="classic">Classic</button>
+      <button class="game-btn" data-mode="speed">Speed</button>
+      <button class="game-btn" data-mode="reverse">Reverse</button>
+    </div>
+    <span>Round: <strong id="round">0</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="play">Start</button>
+  </div>
+  <div class="ce-board" id="board">
+    <div class="ce-pad ce-pad-0" data-pad="0"></div>
+    <div class="ce-pad ce-pad-1" data-pad="1"></div>
+    <div class="ce-pad ce-pad-2" data-pad="2"></div>
+    <div class="ce-pad ce-pad-3" data-pad="3"></div>
+    <div class="ce-center" id="center">Press Start<small>Q W A S</small></div>
+  </div>
+  <div class="game-message" id="msg">Watch the sequence, then repeat it.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "color-echo";
+let saved = GG.load(SLUG, {
+  bestSequenceClassic: 0, bestSequenceSpeed: 0, bestSequenceReverse: 0,
+  totalRoundsPlayed: 0,
+}) || {};
+saved = Object.assign({
+  bestSequenceClassic: 0, bestSequenceSpeed: 0, bestSequenceReverse: 0, totalRoundsPlayed: 0,
+}, saved);
+
+// Web Audio for tones — distinct pitch per pad.
+const audio = new (window.AudioContext || window.webkitAudioContext)();
+const PAD_FREQ = [330, 261.63, 392, 220]; // green, red, yellow, blue
+function beep(idx, dur = 0.32) {
+  const o = audio.createOscillator();
+  const g = audio.createGain();
+  o.type = "sine";
+  o.frequency.value = PAD_FREQ[idx];
+  o.connect(g); g.connect(audio.destination);
+  const t = audio.currentTime;
+  g.gain.setValueAtTime(0.001, t);
+  g.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.start(t);
+  o.stop(t + dur + 0.05);
+}
+function buzz() {
+  const o = audio.createOscillator();
+  const g = audio.createGain();
+  o.type = "sawtooth"; o.frequency.value = 110;
+  o.connect(g); g.connect(audio.destination);
+  const t = audio.currentTime;
+  g.gain.setValueAtTime(0.001, t);
+  g.gain.exponentialRampToValueAtTime(0.16, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+  o.start(t); o.stop(t + 0.55);
+}
+
+const padEls = [...document.querySelectorAll(".ce-pad")];
+const center = document.getElementById("center");
+const roundEl = document.getElementById("round");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+
+let mode = "classic";
+let sequence = [];
+let userIdx = 0;
+let acceptingInput = false;
+let playing = false;
+
+function bestKey() {
+  return mode === "speed" ? "bestSequenceSpeed"
+       : mode === "reverse" ? "bestSequenceReverse"
+       : "bestSequenceClassic";
+}
+function syncBest() { bestEl.textContent = saved[bestKey()] || 0; }
+
+document.querySelectorAll(".ce-modes button").forEach((b) => {
+  b.addEventListener("click", () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll(".ce-modes button").forEach((x) =>
+      x.classList.toggle("active", x === b)
+    );
+    syncBest();
+    if (playing) endRun("Switched mode.");
+  });
+});
+document.querySelector('.ce-modes button[data-mode="classic"]').classList.add("active");
+
+function flashPad(idx, dur) {
+  return new Promise((resolve) => {
+    if (audio.state === "suspended") audio.resume();
+    beep(idx, dur / 1000);
+    padEls[idx].classList.add("lit");
+    setTimeout(() => {
+      padEls[idx].classList.remove("lit");
+      setTimeout(resolve, Math.max(80, dur * 0.4));
+    }, dur);
+  });
+}
+
+async function playSequence() {
+  acceptingInput = false;
+  setLocked(true);
+  center.innerHTML = "Watch<small>round " + sequence.length + "</small>";
+  // step delay shrinks per round in speed mode
+  const baseStep = mode === "speed"
+    ? Math.max(180, 600 - sequence.length * 25)
+    : Math.max(220, 560 - sequence.length * 8);
+  await new Promise((r) => setTimeout(r, 600));
+  for (const idx of sequence) {
+    await flashPad(idx, baseStep);
+  }
+  acceptingInput = true;
+  userIdx = 0;
+  setLocked(false);
+  center.innerHTML = mode === "reverse" ? "Repeat<small>backwards</small>" : "Your turn";
+}
+
+function setLocked(locked) {
+  padEls.forEach((p) => p.classList.toggle("locked", locked));
+}
+
+function expectedAt(i) {
+  return mode === "reverse"
+    ? sequence[sequence.length - 1 - i]
+    : sequence[i];
+}
+
+function userPress(idx) {
+  if (!acceptingInput || !playing) return;
+  flashPad(idx, 220);
+  if (idx !== expectedAt(userIdx)) {
+    return endRun("Wrong button.");
+  }
+  userIdx++;
+  if (userIdx >= sequence.length) {
+    saved.totalRoundsPlayed++;
+    GG.save(SLUG, saved);
+    if (sequence.length > (saved[bestKey()] || 0)) {
+      saved[bestKey()] = sequence.length;
+      GG.save(SLUG, saved);
+      syncBest();
+    }
+    setTimeout(nextRound, 600);
+  }
+}
+
+padEls.forEach((p) => p.addEventListener("click", () => userPress(+p.dataset.pad)));
+window.addEventListener("keydown", (e) => {
+  const m = { q: 0, r: 1, a: 2, s: 3, w: 1 };
+  if (m[e.key.toLowerCase()] != null) userPress(m[e.key.toLowerCase()]);
+});
+
+function nextRound() {
+  sequence.push(Math.floor(Math.random() * 4));
+  roundEl.textContent = sequence.length;
+  playSequence();
+}
+
+function start() {
+  playing = true;
+  sequence = [];
+  roundEl.textContent = 0;
+  msgEl.textContent = "Watch the sequence, then repeat it.";
+  if (audio.state === "suspended") audio.resume();
+  nextRound();
+}
+
+function endRun(reason) {
+  if (!playing) return;
+  playing = false;
+  acceptingInput = false;
+  setLocked(true);
+  buzz();
+  center.innerHTML = "Game Over<small>" + (sequence.length - 1) + " rounds</small>";
+  msgEl.textContent = `${reason} Made it to round ${Math.max(0, sequence.length - 1)}.`;
+}
+
+document.getElementById("play").addEventListener("click", start);
+syncBest();
+</script>
+</body>
+</html>

@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stack Tower</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Height: <strong id="height">0</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <span>Perfects: <strong id="perfects">0</strong></span>
+    <span>Streak: <strong id="streak">0</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="420" height="640"></canvas>
+  <div class="game-message" id="msg">Click / spacebar to drop. Land within 2 px for a perfect stack.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "stack-tower";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const BLOCK_H = 22;
+const PERFECT_TOL = 2;
+
+let saved = GG.load(SLUG, { bestHeight: 0, totalBlocks: 0, bestPerfectStreak: 0 })
+            || { bestHeight: 0, totalBlocks: 0, bestPerfectStreak: 0 };
+
+const heightEl = document.getElementById("height");
+const bestEl = document.getElementById("best");
+const perfectsEl = document.getElementById("perfects");
+const streakEl = document.getElementById("streak");
+const msgEl = document.getElementById("msg");
+
+let stack;        // array of {x, w} bottom-to-top
+let moving;       // {x, w, dir, speed}
+let camY;         // camera offset (positive = looking up)
+let cameraTargetY;
+let perfectStreak;
+let perfects;
+let alive;
+let started;
+
+bestEl.textContent = saved.bestHeight;
+
+function reset() {
+  const baseW = 220;
+  stack = [{ x: (W - baseW) / 2, w: baseW }];
+  moving = { x: 0, w: baseW, dir: 1, speed: 3.2 };
+  camY = 0; cameraTargetY = 0;
+  perfectStreak = 0; perfects = 0;
+  alive = true; started = false;
+  heightEl.textContent = 0;
+  perfectsEl.textContent = 0;
+  streakEl.textContent = 0;
+  msgEl.textContent = "Click / spacebar to drop. Land within 2 px for a perfect stack.";
+}
+
+function topBlockY() {
+  // y of the top of the topmost stacked block, in world coords (0 = canvas bottom)
+  return stack.length * BLOCK_H;
+}
+
+function blockColor(idx) {
+  // gradient: dark blue → purple → pink → orange as height grows
+  const t = Math.min(1, idx / 60);
+  const hue = 220 - t * 200;     // 220 → 20
+  const sat = 65 + t * 25;
+  const light = 45 + Math.sin(idx * 0.4) * 4;
+  return `hsl(${hue}, ${sat}%, ${light}%)`;
+}
+
+function drop() {
+  if (!alive) return;
+  if (!started) { started = true; return; }
+
+  const top = stack[stack.length - 1];
+  const overlapL = Math.max(moving.x, top.x);
+  const overlapR = Math.min(moving.x + moving.w, top.x + top.w);
+  const overlap = overlapR - overlapL;
+
+  if (overlap <= 0) return die("Missed the tower.");
+
+  const offset = Math.abs(moving.x - top.x);
+  if (offset <= PERFECT_TOL) {
+    // perfect: align to top.x and grow back up to original size if shrunk
+    const perfectW = Math.min(top.w + 2, 220);
+    const newX = Math.max(0, top.x - 1);
+    stack.push({ x: newX, w: perfectW });
+    perfectStreak++;
+    perfects++;
+    if (perfectStreak > (saved.bestPerfectStreak || 0)) saved.bestPerfectStreak = perfectStreak;
+  } else {
+    stack.push({ x: overlapL, w: overlap });
+    perfectStreak = 0;
+    if (overlap < 8) {
+      heightEl.textContent = stack.length - 1;
+      return die("Block too small.");
+    }
+  }
+
+  saved.totalBlocks = (saved.totalBlocks || 0) + 1;
+  heightEl.textContent = stack.length - 1;
+  perfectsEl.textContent = perfects;
+  streakEl.textContent = perfectStreak;
+
+  // next moving block
+  const last = stack[stack.length - 1];
+  moving = {
+    x: Math.random() < 0.5 ? -last.w : W,
+    w: last.w,
+    dir: 0,
+    speed: Math.min(7, 3.2 + stack.length * 0.08),
+  };
+  moving.dir = moving.x < 0 ? 1 : -1;
+
+  // camera follows the top once tower exceeds halfway
+  cameraTargetY = Math.max(0, stack.length * BLOCK_H - H / 2);
+  GG.save(SLUG, saved);
+}
+
+function die(reason) {
+  alive = false;
+  const h = stack.length - 1;
+  if (h > (saved.bestHeight || 0)) {
+    saved.bestHeight = h;
+    bestEl.textContent = h;
+    msgEl.textContent = `${reason} New best: ${h}!`;
+  } else {
+    msgEl.textContent = `${reason} Height: ${h}.`;
+  }
+  GG.save(SLUG, saved);
+}
+
+function tick() {
+  if (!alive) { draw(); return; }
+  if (started) {
+    moving.x += moving.dir * moving.speed;
+    if (moving.x + moving.w >= W && moving.dir > 0) moving.dir = -1;
+    else if (moving.x <= 0 && moving.dir < 0) moving.dir = 1;
+  }
+  // smooth camera
+  camY += (cameraTargetY - camY) * 0.12;
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  // soft horizon
+  const grd = ctx.createLinearGradient(0, 0, 0, H);
+  grd.addColorStop(0, "rgba(124,92,255,0.06)");
+  grd.addColorStop(1, "rgba(255,107,157,0.03)");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+
+  // draw stacked blocks
+  for (let i = 0; i < stack.length; i++) {
+    const b = stack[i];
+    const y = H - (i + 1) * BLOCK_H + camY;
+    if (y > H || y + BLOCK_H < 0) continue;
+    ctx.fillStyle = blockColor(i);
+    ctx.fillRect(Math.round(b.x), Math.round(y), b.w, BLOCK_H - 1);
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    ctx.fillRect(Math.round(b.x), Math.round(y), b.w, 4);
+  }
+
+  // moving block on top
+  if (alive) {
+    const y = H - (stack.length + 1) * BLOCK_H + camY;
+    ctx.fillStyle = blockColor(stack.length);
+    ctx.fillRect(Math.round(moving.x), Math.round(y), moving.w, BLOCK_H - 1);
+    ctx.fillStyle = "rgba(255,255,255,0.12)";
+    ctx.fillRect(Math.round(moving.x), Math.round(y), moving.w, 4);
+  }
+
+  // height indicator on the side
+  ctx.fillStyle = "rgba(243,244,255,0.35)";
+  ctx.font = "12px ui-sans-serif,system-ui";
+  ctx.fillText(stack.length - 1, 6, 16);
+}
+
+cv.addEventListener("mousedown", drop);
+cv.addEventListener("touchstart", (e) => { e.preventDefault(); drop(); });
+window.addEventListener("keydown", (e) => {
+  if (e.key === " " || e.code === "Space") { e.preventDefault(); drop(); }
+});
+document.getElementById("play").addEventListener("click", () => {
+  reset();
+  requestAnimationFrame(tick);
+});
+
+reset();
+draw();
+</script>
+</body>
+</html>

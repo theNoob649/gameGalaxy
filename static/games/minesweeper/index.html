@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Minesweeper</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .ms-board {
+    display: grid;
+    background: var(--border);
+    padding: 4px;
+    border-radius: 12px;
+    user-select: none;
+  }
+  .ms-cell {
+    width: 28px; height: 28px;
+    background: var(--panel);
+    margin: 1px;
+    display: grid; place-items: center;
+    font-weight: 800;
+    font-size: 14px;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .ms-cell.rev { background: var(--panel-2); cursor: default; }
+  .ms-cell.flag { background: rgba(255, 107, 157, 0.18); }
+  .ms-cell.mine { background: var(--bad); color: white; }
+  .ms-cell.n1 { color: #60a5fa; }
+  .ms-cell.n2 { color: #34d399; }
+  .ms-cell.n3 { color: #fb7185; }
+  .ms-cell.n4 { color: #c084fc; }
+  .ms-cell.n5 { color: #fcd34d; }
+  .ms-cell.n6 { color: #67e8f9; }
+  .ms-cell.n7 { color: #f3f4ff; }
+  .ms-cell.n8 { color: #f87171; }
+  .ms-difs button.active { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <div class="ms-difs">
+      <button class="game-btn" data-d="easy">Easy</button>
+      <button class="game-btn" data-d="medium">Medium</button>
+      <button class="game-btn" data-d="hard">Hard</button>
+    </div>
+    <span>Mines: <strong id="mines">0</strong></span>
+    <span>Time: <strong id="time">0s</strong></span>
+    <span>Best: <strong id="best">—</strong></span>
+    <button class="game-btn primary" id="newGame">New game</button>
+  </div>
+  <div id="board" class="ms-board"></div>
+  <div class="game-message" id="msg">Left-click reveals. Right-click flags.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "minesweeper";
+const DIFS = {
+  easy: { rows: 9, cols: 9, mines: 10 },
+  medium: { rows: 14, cols: 14, mines: 30 },
+  hard: { rows: 16, cols: 20, mines: 60 },
+};
+
+let dif = "easy";
+let cells = [];
+let rows = 0, cols = 0, mineCount = 0;
+let firstClick = true;
+let revealed = 0;
+let flagged = 0;
+let over = false;
+let timerId = null;
+let elapsed = 0;
+let bestTimes = GG.load(SLUG, {}) || {};
+
+const boardEl = document.getElementById("board");
+const minesEl = document.getElementById("mines");
+const timeEl = document.getElementById("time");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+
+function newGame() {
+  if (timerId) clearInterval(timerId);
+  elapsed = 0; timeEl.textContent = "0s";
+  const cfg = DIFS[dif];
+  rows = cfg.rows; cols = cfg.cols; mineCount = cfg.mines;
+  cells = Array.from({ length: rows }, () =>
+    Array.from({ length: cols }, () => ({ mine: false, rev: false, flag: false, n: 0 }))
+  );
+  firstClick = true; revealed = 0; flagged = 0; over = false;
+  msgEl.textContent = "Left-click reveals. Right-click flags.";
+  minesEl.textContent = mineCount;
+  bestEl.textContent = bestTimes[dif] != null ? bestTimes[dif] + "s" : "—";
+  render();
+}
+
+function render() {
+  boardEl.style.gridTemplateColumns = `repeat(${cols}, 30px)`;
+  boardEl.innerHTML = "";
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const cell = cells[r][c];
+    const el = document.createElement("div");
+    el.className = "ms-cell";
+    if (cell.rev) {
+      el.classList.add("rev");
+      if (cell.mine) { el.classList.add("mine"); el.textContent = "✱"; }
+      else if (cell.n) { el.classList.add("n" + cell.n); el.textContent = cell.n; }
+    } else if (cell.flag) {
+      el.classList.add("flag");
+      el.textContent = "⚑";
+    }
+    el.addEventListener("click", () => onLeft(r, c));
+    el.addEventListener("contextmenu", (e) => { e.preventDefault(); onRight(r, c); });
+    boardEl.appendChild(el);
+  }
+  minesEl.textContent = mineCount - flagged;
+}
+
+function placeMines(safeR, safeC) {
+  let placed = 0;
+  while (placed < mineCount) {
+    const r = Math.floor(Math.random() * rows);
+    const c = Math.floor(Math.random() * cols);
+    if (cells[r][c].mine) continue;
+    if (Math.abs(r - safeR) <= 1 && Math.abs(c - safeC) <= 1) continue;
+    cells[r][c].mine = true;
+    placed++;
+  }
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    if (cells[r][c].mine) continue;
+    let n = 0;
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      if (cells[nr][nc].mine) n++;
+    }
+    cells[r][c].n = n;
+  }
+}
+
+function startTimer() {
+  if (timerId) return;
+  timerId = setInterval(() => {
+    elapsed++;
+    timeEl.textContent = elapsed + "s";
+  }, 1000);
+}
+
+function reveal(r, c) {
+  const cell = cells[r][c];
+  if (cell.rev || cell.flag) return;
+  cell.rev = true; revealed++;
+  if (cell.mine) return;
+  if (cell.n === 0) {
+    for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+      const nr = r + dr, nc = c + dc;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      if (!cells[nr][nc].rev) reveal(nr, nc);
+    }
+  }
+}
+
+function onLeft(r, c) {
+  if (over) return;
+  if (firstClick) {
+    placeMines(r, c);
+    firstClick = false;
+    startTimer();
+  }
+  if (cells[r][c].flag) return;
+  reveal(r, c);
+  if (cells[r][c].mine) return loss();
+  if (revealed === rows * cols - mineCount) return win();
+  render();
+}
+
+function onRight(r, c) {
+  if (over || firstClick) return;
+  const cell = cells[r][c];
+  if (cell.rev) return;
+  cell.flag = !cell.flag;
+  flagged += cell.flag ? 1 : -1;
+  render();
+}
+
+function loss() {
+  over = true;
+  clearInterval(timerId);
+  for (const row of cells) for (const cell of row) if (cell.mine) cell.rev = true;
+  msgEl.textContent = "Boom! Click 'New game' to try again.";
+  render();
+}
+
+function win() {
+  over = true;
+  clearInterval(timerId);
+  let line = `Cleared in ${elapsed}s.`;
+  if (bestTimes[dif] == null || elapsed < bestTimes[dif]) {
+    bestTimes[dif] = elapsed;
+    GG.save(SLUG, bestTimes);
+    bestEl.textContent = elapsed + "s";
+    line += " New best!";
+  }
+  msgEl.textContent = line;
+  render();
+}
+
+document.querySelectorAll(".ms-difs button").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    dif = btn.dataset.d;
+    document.querySelectorAll(".ms-difs button").forEach((b) =>
+      b.classList.toggle("active", b === btn)
+    );
+    newGame();
+  });
+});
+document.querySelector(".ms-difs button[data-d='easy']").classList.add("active");
+document.getElementById("newGame").addEventListener("click", newGame);
+boardEl.addEventListener("contextmenu", (e) => e.preventDefault());
+newGame();
+</script>
+</body>
+</html>

@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Whack-a-Mole</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .wm-modes { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+  .wm-modes button.active { border-color: var(--accent); }
+  .wm-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 120px);
+    grid-template-rows: repeat(3, 120px);
+    gap: 14px;
+    padding: 14px;
+    background: linear-gradient(180deg, #2a4d2a 0%, #1f3a1f 100%);
+    border-radius: 18px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+  .wm-hole {
+    position: relative;
+    background: radial-gradient(ellipse at center, #1a0f08 0%, #0a0604 70%);
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+    overflow: hidden;
+    cursor: pointer;
+    user-select: none;
+  }
+  .wm-mole {
+    position: absolute;
+    left: 18%; right: 18%;
+    top: 100%;
+    height: 80%;
+    background: radial-gradient(ellipse at 50% 30%, #a06a3c 0%, #6b3a1c 70%);
+    border-radius: 50% 50% 40% 40%;
+    transition: top 0.16s ease-out;
+    pointer-events: none;
+  }
+  .wm-mole.up { top: 12%; pointer-events: auto; cursor: pointer; }
+  .wm-mole.gold { background: radial-gradient(ellipse at 50% 30%, #ffe273 0%, #c9982c 70%); }
+  .wm-mole.bomb { background: radial-gradient(ellipse at 50% 30%, #4a4a4a 0%, #1a1a1a 70%); }
+  .wm-eye {
+    position: absolute; top: 32%; width: 8px; height: 8px;
+    border-radius: 50%; background: #1a0808;
+  }
+  .wm-mole .e1 { left: 30%; }
+  .wm-mole .e2 { right: 30%; }
+  .wm-mole.bomb::after {
+    content: ""; position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+    width: 4px; height: 14px; background: #ff8a3c; border-radius: 2px;
+    box-shadow: 0 -2px 6px rgba(255, 138, 60, 0.8);
+  }
+  .wm-pop {
+    position: absolute; pointer-events: none;
+    font-weight: 800;
+    color: #fcd34d;
+    animation: wm-pop 0.6s ease-out forwards;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+  }
+  .wm-pop.bad { color: var(--bad); }
+  .wm-pop.gold { color: #ffe273; }
+  @keyframes wm-pop { to { transform: translate(-50%, -40px); opacity: 0; } }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <div class="wm-modes">
+      <button class="game-btn" data-mode="classic">Classic 60s</button>
+      <button class="game-btn" data-mode="kids">Kids</button>
+      <button class="game-btn" data-mode="hardcore">Hardcore</button>
+    </div>
+    <span>Score: <strong id="score">0</strong></span>
+    <span id="timeWrap">Time: <strong id="time">60</strong>s</span>
+    <span id="livesWrap" style="display:none">Lives: <strong id="lives">3</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <div id="grid" class="wm-grid"></div>
+  <div class="game-message" id="msg">Click a mode and hit Play. Don't whack the bombs.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "whack-a-mole";
+let saved = GG.load(SLUG, {
+  bestClassicScore: 0, bestHardcoreScore: 0, totalMolesWhacked: 0,
+}) || {};
+saved = Object.assign({ bestClassicScore: 0, bestHardcoreScore: 0, totalMolesWhacked: 0 }, saved);
+
+const gridEl = document.getElementById("grid");
+const scoreEl = document.getElementById("score");
+const timeEl = document.getElementById("time");
+const livesEl = document.getElementById("lives");
+const livesWrap = document.getElementById("livesWrap");
+const timeWrap = document.getElementById("timeWrap");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+
+let mode = "classic";
+let holes = [];          // {state: "down"/"up", until: ts, kind: "normal"/"gold"/"bomb"}
+let active = false;
+let score = 0;
+let lives = 3;
+let endsAt = 0;
+let lastSpawn = 0;
+let tickHandle = null;
+
+// build grid
+function buildGrid() {
+  gridEl.innerHTML = "";
+  holes = [];
+  for (let i = 0; i < 9; i++) {
+    const hole = document.createElement("div");
+    hole.className = "wm-hole";
+    const mole = document.createElement("div");
+    mole.className = "wm-mole";
+    mole.innerHTML = '<div class="wm-eye e1"></div><div class="wm-eye e2"></div>';
+    hole.appendChild(mole);
+    hole.addEventListener("click", () => onWhack(i, hole));
+    gridEl.appendChild(hole);
+    holes.push({ el: hole, mole, state: "down", until: 0, kind: "normal" });
+  }
+}
+buildGrid();
+
+const KIDS_UP = [1500, 1900];
+const CLASSIC_UP = [800, 1300];
+const HARDCORE_UP = [550, 950];
+
+function spawnRange() {
+  if (mode === "kids")     return [600, 1100];
+  if (mode === "hardcore") return [240, 480];
+  return [340, 720];
+}
+function upRange() {
+  if (mode === "kids")     return KIDS_UP;
+  if (mode === "hardcore") return HARDCORE_UP;
+  return CLASSIC_UP;
+}
+
+function rand(a, b) { return a + Math.random() * (b - a); }
+
+function popMole(idx) {
+  const h = holes[idx];
+  if (h.state !== "down") return;
+  // pick kind
+  let kind = "normal";
+  const r = Math.random();
+  if (r < 0.06 && mode !== "kids") kind = "bomb";
+  else if (r < 0.14) kind = "gold";
+  h.state = "up"; h.kind = kind;
+  h.mole.classList.remove("gold", "bomb");
+  h.mole.classList.add("up");
+  if (kind === "gold") h.mole.classList.add("gold");
+  if (kind === "bomb") h.mole.classList.add("bomb");
+  const [a, b] = upRange();
+  h.until = performance.now() + rand(a, b);
+}
+
+function hideMole(idx, missed) {
+  const h = holes[idx];
+  if (h.state !== "up") return;
+  h.mole.classList.remove("up");
+  h.state = "down";
+  h.kind = "normal";
+  if (missed && mode === "hardcore" && active && h.kind !== "bomb") {
+    lives--;
+    livesEl.textContent = lives;
+    if (lives <= 0) endRound("Out of lives.");
+  }
+}
+
+function popText(holeEl, text, cls = "") {
+  const rect = holeEl.getBoundingClientRect();
+  const gridRect = gridEl.getBoundingClientRect();
+  const p = document.createElement("div");
+  p.className = "wm-pop " + cls;
+  p.textContent = text;
+  p.style.left = (rect.left - gridRect.left + rect.width / 2) + "px";
+  p.style.top = (rect.top - gridRect.top + rect.height / 4) + "px";
+  p.style.transform = "translate(-50%, 0)";
+  gridEl.appendChild(p);
+  setTimeout(() => p.remove(), 600);
+}
+
+function onWhack(idx, holeEl) {
+  if (!active) return;
+  const h = holes[idx];
+  if (h.state !== "up") return;
+  if (h.kind === "bomb") {
+    popText(holeEl, "BOOM", "bad");
+    h.mole.classList.remove("up"); h.state = "down"; h.kind = "normal";
+    return endRound("You whacked a bomb.");
+  }
+  const points = h.kind === "gold" ? 5 : 1;
+  score += points;
+  saved.totalMolesWhacked = (saved.totalMolesWhacked || 0) + 1;
+  scoreEl.textContent = score;
+  popText(holeEl, "+" + points, h.kind === "gold" ? "gold" : "");
+  h.mole.classList.remove("up"); h.state = "down"; h.kind = "normal";
+}
+
+function tick(now) {
+  if (!active) return;
+  // hide overdue moles
+  for (let i = 0; i < 9; i++) {
+    if (holes[i].state === "up" && now > holes[i].until) {
+      hideMole(i, true);
+    }
+  }
+  // spawn
+  if (now >= lastSpawn) {
+    const downIdx = [];
+    for (let i = 0; i < 9; i++) if (holes[i].state === "down") downIdx.push(i);
+    if (downIdx.length) {
+      const idx = downIdx[Math.floor(Math.random() * downIdx.length)];
+      popMole(idx);
+    }
+    const [a, b] = spawnRange();
+    lastSpawn = now + rand(a, b);
+  }
+  // timer
+  if (mode !== "hardcore") {
+    const left = Math.max(0, (endsAt - now) / 1000);
+    timeEl.textContent = left.toFixed(1);
+    if (left <= 0) return endRound("Time's up.");
+  }
+  tickHandle = requestAnimationFrame(tick);
+}
+
+function endRound(reason) {
+  active = false;
+  if (tickHandle) cancelAnimationFrame(tickHandle);
+  for (let i = 0; i < 9; i++) {
+    holes[i].mole.classList.remove("up");
+    holes[i].state = "down";
+  }
+  let line = `${reason} Score ${score}.`;
+  if (mode === "classic" || mode === "kids") {
+    if (score > (saved.bestClassicScore || 0)) {
+      saved.bestClassicScore = score;
+      line += " New best!";
+    }
+  } else if (mode === "hardcore") {
+    if (score > (saved.bestHardcoreScore || 0)) {
+      saved.bestHardcoreScore = score;
+      line += " New hardcore best!";
+    }
+  }
+  GG.save(SLUG, saved);
+  bestEl.textContent = bestForMode();
+  msgEl.textContent = line;
+}
+
+function bestForMode() {
+  return mode === "hardcore" ? (saved.bestHardcoreScore || 0) : (saved.bestClassicScore || 0);
+}
+
+function start() {
+  if (tickHandle) cancelAnimationFrame(tickHandle);
+  for (let i = 0; i < 9; i++) {
+    holes[i].mole.classList.remove("up");
+    holes[i].state = "down";
+  }
+  score = 0; lives = 3;
+  scoreEl.textContent = 0;
+  livesEl.textContent = 3;
+  active = true;
+  if (mode === "hardcore") {
+    livesWrap.style.display = "inline";
+    timeWrap.style.display = "none";
+  } else {
+    livesWrap.style.display = "none";
+    timeWrap.style.display = "inline";
+    endsAt = performance.now() + 60_000;
+    timeEl.textContent = "60.0";
+  }
+  msgEl.textContent = mode === "hardcore"
+    ? "Whack moles, avoid bombs. 3 misses and you're out."
+    : "60 seconds. Bombs end the round. Gold = +5.";
+  lastSpawn = performance.now() + 300;
+  tickHandle = requestAnimationFrame(tick);
+}
+
+document.querySelectorAll(".wm-modes button").forEach((b) => {
+  b.addEventListener("click", () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll(".wm-modes button").forEach((x) =>
+      x.classList.toggle("active", x === b)
+    );
+    bestEl.textContent = bestForMode();
+  });
+});
+document.querySelector('.wm-modes button[data-mode="classic"]').classList.add("active");
+document.getElementById("play").addEventListener("click", start);
+bestEl.textContent = bestForMode();
+</script>
+</body>
+</html>

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Word Guess</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .wg-grid {
+    display: grid;
+    grid-template-rows: repeat(6, 56px);
+    gap: 6px;
+  }
+  .wg-row { display: grid; grid-template-columns: repeat(5, 56px); gap: 6px; }
+  .wg-tile {
+    background: var(--panel);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    display: grid; place-items: center;
+    font-size: 28px; font-weight: 800;
+    text-transform: uppercase;
+  }
+  .wg-tile.filled { border-color: var(--text-dim); }
+  .wg-tile.hit   { background: var(--good); border-color: var(--good); color: white; }
+  .wg-tile.near  { background: #e0a800; border-color: #e0a800; color: white; }
+  .wg-tile.miss  { background: #2a335a; border-color: #2a335a; color: var(--text-dim); }
+  .wg-keyboard { display: flex; flex-direction: column; gap: 6px; }
+  .wg-krow { display: flex; gap: 6px; justify-content: center; }
+  .wg-key {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 700;
+    padding: 10px 8px;
+    min-width: 32px;
+    cursor: pointer;
+  }
+  .wg-key.wide { padding: 10px 14px; }
+  .wg-key.hit  { background: var(--good); border-color: var(--good); color: white; }
+  .wg-key.near { background: #e0a800; border-color: #e0a800; color: white; }
+  .wg-key.miss { background: #2a335a; color: var(--text-dim); }
+  .wg-stats { font-size: 13px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Streak: <strong id="streak">0</strong></span>
+    <span>Played: <strong id="played">0</strong></span>
+    <span>Won: <strong id="won">0</strong></span>
+  </div>
+  <div id="grid" class="wg-grid"></div>
+  <div id="msg" class="game-message">Guess today's 5-letter word.</div>
+  <div id="keyboard" class="wg-keyboard"></div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script src="words.js"></script>
+<script>
+const SLUG = "word-guess";
+const ANSWERS = window.GG_ANSWERS;
+const VALID = new Set(window.GG_VALID);
+const ROWS = 6;
+const LEN = 5;
+
+function dayKey() {
+  const d = new Date();
+  return d.getUTCFullYear() + "-" + String(d.getUTCMonth() + 1).padStart(2, "0")
+       + "-" + String(d.getUTCDate()).padStart(2, "0");
+}
+function dayIndex() {
+  const epoch = Date.UTC(2024, 0, 1);
+  return Math.floor((Date.now() - epoch) / 86400000);
+}
+const TODAY = dayKey();
+const ANSWER = ANSWERS[((dayIndex() % ANSWERS.length) + ANSWERS.length) % ANSWERS.length];
+
+const persisted = GG.load(SLUG, null) || {};
+let state = (persisted.day === TODAY) ? persisted : {
+  day: TODAY,
+  guesses: [],
+  done: false,
+  streak: persisted.streak || 0,
+  played: persisted.played || 0,
+  won: persisted.won || 0,
+  lastWonDay: persisted.lastWonDay || null,
+};
+
+function persist() {
+  GG.save(SLUG, state);
+}
+
+const gridEl = document.getElementById("grid");
+const kbEl = document.getElementById("keyboard");
+const msgEl = document.getElementById("msg");
+const streakEl = document.getElementById("streak");
+const playedEl = document.getElementById("played");
+const wonEl = document.getElementById("won");
+
+let current = "";
+
+function score(guess) {
+  const result = Array(LEN).fill("miss");
+  const ans = ANSWER.split("");
+  // mark hits
+  for (let i = 0; i < LEN; i++) {
+    if (guess[i] === ans[i]) { result[i] = "hit"; ans[i] = null; }
+  }
+  for (let i = 0; i < LEN; i++) {
+    if (result[i] === "hit") continue;
+    const idx = ans.indexOf(guess[i]);
+    if (idx >= 0) { result[i] = "near"; ans[idx] = null; }
+  }
+  return result;
+}
+
+function renderGrid() {
+  gridEl.innerHTML = "";
+  for (let r = 0; r < ROWS; r++) {
+    const row = document.createElement("div");
+    row.className = "wg-row";
+    for (let c = 0; c < LEN; c++) {
+      const t = document.createElement("div");
+      t.className = "wg-tile";
+      if (r < state.guesses.length) {
+        const g = state.guesses[r];
+        const s = score(g);
+        t.textContent = g[c];
+        t.classList.add(s[c]);
+      } else if (r === state.guesses.length) {
+        t.textContent = current[c] || "";
+        if (current[c]) t.classList.add("filled");
+      }
+      row.appendChild(t);
+    }
+    gridEl.appendChild(row);
+  }
+  streakEl.textContent = state.streak;
+  playedEl.textContent = state.played;
+  wonEl.textContent = state.won;
+  renderKeyboard();
+}
+
+function bestStateForLetter(letter) {
+  let best = null; // miss < near < hit
+  const order = { miss: 0, near: 1, hit: 2 };
+  for (const g of state.guesses) {
+    const s = score(g);
+    for (let i = 0; i < LEN; i++) {
+      if (g[i] === letter) {
+        if (best == null || order[s[i]] > order[best]) best = s[i];
+      }
+    }
+  }
+  return best;
+}
+
+function renderKeyboard() {
+  const layout = ["qwertyuiop", "asdfghjkl", "@zxcvbnm#"];
+  kbEl.innerHTML = "";
+  for (const row of layout) {
+    const r = document.createElement("div");
+    r.className = "wg-krow";
+    for (const ch of row) {
+      const key = document.createElement("button");
+      key.className = "wg-key";
+      if (ch === "@") { key.classList.add("wide"); key.textContent = "Enter"; key.dataset.k = "Enter"; }
+      else if (ch === "#") { key.classList.add("wide"); key.textContent = "⌫"; key.dataset.k = "Backspace"; }
+      else { key.textContent = ch.toUpperCase(); key.dataset.k = ch; const st = bestStateForLetter(ch); if (st) key.classList.add(st); }
+      key.addEventListener("click", () => handleKey(key.dataset.k));
+      r.appendChild(key);
+    }
+    kbEl.appendChild(r);
+  }
+}
+
+function handleKey(k) {
+  if (state.done) return;
+  if (k === "Enter") {
+    if (current.length !== LEN) { flash("Need 5 letters."); return; }
+    if (!VALID.has(current)) { flash("Not in the word list."); return; }
+    submit(current);
+    current = "";
+    renderGrid();
+    return;
+  }
+  if (k === "Backspace") { current = current.slice(0, -1); renderGrid(); return; }
+  if (/^[a-z]$/i.test(k) && current.length < LEN) {
+    current += k.toLowerCase();
+    renderGrid();
+  }
+}
+
+function flash(text) {
+  msgEl.textContent = text;
+  setTimeout(() => {
+    if (state.done) return;
+    msgEl.textContent = "Guess today's 5-letter word.";
+  }, 1500);
+}
+
+function submit(guess) {
+  state.guesses.push(guess);
+  if (guess === ANSWER) {
+    state.done = true; state.played++;
+    state.won++;
+    // streak: contiguous days won
+    const yesterday = (() => {
+      const d = new Date(TODAY + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1);
+      return d.toISOString().slice(0, 10);
+    })();
+    state.streak = (state.lastWonDay === yesterday || state.lastWonDay === TODAY)
+      ? (state.streak || 0) + (state.lastWonDay === TODAY ? 0 : 1)
+      : 1;
+    state.lastWonDay = TODAY;
+    msgEl.textContent = `Got it in ${state.guesses.length}!`;
+  } else if (state.guesses.length >= ROWS) {
+    state.done = true; state.played++;
+    state.streak = 0;
+    msgEl.textContent = `Out of guesses. Word was "${ANSWER.toUpperCase()}".`;
+  }
+  persist();
+}
+
+window.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "Enter") { e.preventDefault(); handleKey("Enter"); }
+  else if (e.key === "Backspace") { e.preventDefault(); handleKey("Backspace"); }
+  else if (/^[a-z]$/i.test(e.key)) handleKey(e.key);
+});
+
+if (state.done) {
+  msgEl.textContent = state.guesses[state.guesses.length - 1] === ANSWER
+    ? `You solved today's puzzle in ${state.guesses.length}.`
+    : `Today's word was "${ANSWER.toUpperCase()}". Come back tomorrow.`;
+}
+
+renderGrid();
+</script>
+</body>
+</html>

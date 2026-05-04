@@ -1,0 +1,602 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gem Swap</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .gs-hud { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; align-items: center; }
+  .gs-modes button.active { border-color: var(--accent); }
+  .gs-board {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 8px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+  canvas { display: block; cursor: pointer; touch-action: none; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud gs-hud">
+    <div class="gs-modes">
+      <button class="game-btn" data-mode="endless">Endless</button>
+      <button class="game-btn" data-mode="timed">Timed 60s</button>
+      <button class="game-btn" data-mode="moves">30 Moves</button>
+    </div>
+    <span>Score: <strong id="score">0</strong></span>
+    <span id="ctxLabel"><span id="ctxName">Mode</span>: <strong id="ctx">Endless</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="play">New game</button>
+  </div>
+  <div class="gs-board"><canvas id="cv" width="448" height="448"></canvas></div>
+  <div class="game-message" id="msg">Click a gem then click an adjacent one. Or drag.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "gem-swap";
+const N = 8;
+const CELL = 56;
+const COLORS = ["#f87171", "#fcd34d", "#34d399", "#60a5fa", "#a78bfa", "#fb923c"];
+const SHAPES = ["circle", "diamond", "square", "triangle", "pentagon", "star"];
+// Animation timings (ms)
+const SWAP_MS = 180;
+const CLEAR_MS = 220;
+const FALL_MS = 220;
+
+let saved = GG.load(SLUG, {
+  highScore: 0, bestEndlessRun: 0, totalMatchesEver: 0,
+}) || {};
+saved = Object.assign({ highScore: 0, bestEndlessRun: 0, totalMatchesEver: 0 }, saved);
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const scoreEl = document.getElementById("score");
+const ctxEl = document.getElementById("ctx");
+const ctxName = document.getElementById("ctxName");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+
+// Each cell holds a gem object: { color, special, dx, dy, alpha }
+// dx/dy are display offsets in PIXELS from the cell's logical position (used for animations).
+// alpha is the draw opacity (1 normal, 0 invisible).
+let board;       // [r][c] gem | null
+let busy = false;
+let score = 0;
+let movesLeft = Infinity;
+let mode = "endless";
+let endsAt = 0;
+let timerId = null;
+let selected = null; // { r, c }
+
+function inBounds(r, c) { return r >= 0 && r < N && c >= 0 && c < N; }
+
+function newGem(color, special = null) {
+  return { color, special, dx: 0, dy: 0, alpha: 1, scale: 1 };
+}
+
+function rndColor(except = []) {
+  let c;
+  do { c = Math.floor(Math.random() * 6); } while (except.includes(c));
+  return c;
+}
+
+function newBoard() {
+  board = [];
+  for (let r = 0; r < N; r++) {
+    const row = [];
+    for (let c = 0; c < N; c++) {
+      const bad = [];
+      if (c >= 2 && row[c-1].color === row[c-2].color) bad.push(row[c-1].color);
+      if (r >= 2 && board[r-1][c].color === board[r-2][c].color) bad.push(board[r-1][c].color);
+      row.push(newGem(rndColor(bad)));
+    }
+    board.push(row);
+  }
+}
+
+// --- match detection ---
+function findMatchGroups() {
+  const groups = [];
+  for (let r = 0; r < N; r++) {
+    let run = 1;
+    for (let c = 1; c <= N; c++) {
+      if (c < N && board[r][c] && board[r][c-1] && board[r][c].color === board[r][c-1].color) run++;
+      else {
+        if (run >= 3) {
+          const cells = [];
+          for (let k = 0; k < run; k++) cells.push({ r, c: c - 1 - k });
+          groups.push({ cells, color: board[r][c-1].color, kind: "row" });
+        }
+        run = 1;
+      }
+    }
+  }
+  for (let c = 0; c < N; c++) {
+    let run = 1;
+    for (let r = 1; r <= N; r++) {
+      if (r < N && board[r][c] && board[r-1][c] && board[r][c].color === board[r-1][c].color) run++;
+      else {
+        if (run >= 3) {
+          const cells = [];
+          for (let k = 0; k < run; k++) cells.push({ r: r - 1 - k, c });
+          groups.push({ cells, color: board[r-1][c].color, kind: "col" });
+        }
+        run = 1;
+      }
+    }
+  }
+  return groups;
+}
+
+function detectSpecials(groups, swapTarget) {
+  const inGroups = new Map();
+  for (const g of groups) for (const cell of g.cells) {
+    const k = cell.r * N + cell.c;
+    if (!inGroups.has(k)) inGroups.set(k, []);
+    inGroups.get(k).push(g);
+  }
+  const spawns = [];
+  for (const [k, gs] of inGroups) {
+    if (gs.length >= 2) spawns.push({ r: Math.floor(k / N), c: k % N, color: gs[0].color, special: "bomb" });
+  }
+  for (const g of groups) {
+    if (g.cells.length >= 5) {
+      const seed = chooseSeedCell(g, swapTarget);
+      spawns.push({ r: seed.r, c: seed.c, color: g.color, special: "color" });
+    } else if (g.cells.length === 4) {
+      const seed = chooseSeedCell(g, swapTarget);
+      spawns.push({ r: seed.r, c: seed.c, color: g.color, special: "line" });
+    }
+  }
+  return spawns;
+}
+
+function chooseSeedCell(group, swapTarget) {
+  if (swapTarget) {
+    const hit = group.cells.find((c) => c.r === swapTarget.r && c.c === swapTarget.c);
+    if (hit) return hit;
+  }
+  return group.cells[Math.floor(group.cells.length / 2)];
+}
+
+function expandRemoval(initialCells) {
+  const queue = initialCells.slice();
+  const removed = new Set();
+  for (const c of queue) removed.add(c.r * N + c.c);
+  while (queue.length) {
+    const cell = queue.shift();
+    const g = board[cell.r] && board[cell.r][cell.c];
+    if (!g || !g.special) continue;
+    if (g.special === "line") {
+      for (let i = 0; i < N; i++) {
+        const a = cell.r * N + i, b = i * N + cell.c;
+        if (!removed.has(a)) { removed.add(a); queue.push({ r: cell.r, c: i }); }
+        if (!removed.has(b)) { removed.add(b); queue.push({ r: i, c: cell.c }); }
+      }
+    } else if (g.special === "bomb") {
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+        const r = cell.r + dr, c = cell.c + dc;
+        if (!inBounds(r, c)) continue;
+        const k = r * N + c;
+        if (!removed.has(k)) { removed.add(k); queue.push({ r, c }); }
+      }
+    } else if (g.special === "color") {
+      const target = g.color;
+      for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+        if (board[r][c] && board[r][c].color === target) {
+          const k = r * N + c;
+          if (!removed.has(k)) { removed.add(k); queue.push({ r, c }); }
+        }
+      }
+    }
+  }
+  return [...removed].map((k) => ({ r: Math.floor(k / N), c: k % N }));
+}
+
+// --- animation primitives ---
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const easeOut = (t) => 1 - (1 - t) * (1 - t);
+
+async function tween(duration, apply) {
+  const start = performance.now();
+  return new Promise((resolve) => {
+    function step(now) {
+      const t = Math.min(1, (now - start) / duration);
+      apply(easeOut(t));
+      if (t < 1) requestAnimationFrame(step);
+      else resolve();
+    }
+    requestAnimationFrame(step);
+  });
+}
+
+async function animateSwap(a, b) {
+  const dr = b.r - a.r, dc = b.c - a.c;
+  const ga = board[a.r][a.c], gb = board[b.r][b.c];
+  // Each gem starts at its destination (logically) but with an offset that animates toward 0.
+  // After we swap logically, the gem now at (a) used to be at (b) — start its display at +dc, +dr offset.
+  ga.dx = dc * CELL; ga.dy = dr * CELL;
+  gb.dx = -dc * CELL; gb.dy = -dr * CELL;
+  // swap logically
+  board[a.r][a.c] = gb; board[b.r][b.c] = ga;
+  await tween(SWAP_MS, (t) => {
+    gb.dx = -dc * CELL * (1 - t); gb.dy = -dr * CELL * (1 - t);
+    ga.dx = dc * CELL * (1 - t);  ga.dy = dr * CELL * (1 - t);
+  });
+  ga.dx = ga.dy = 0; gb.dx = gb.dy = 0;
+}
+
+async function animateClear(removed) {
+  const gems = removed.map((c) => board[c.r][c.c]).filter(Boolean);
+  await tween(CLEAR_MS, (t) => {
+    for (const g of gems) { g.alpha = 1 - t; g.scale = 1 - 0.6 * t; }
+  });
+  for (const c of removed) board[c.r][c.c] = null;
+}
+
+async function gravityAndRefill() {
+  // Compute new positions with fall offsets, then animate them into place.
+  const fallenInfo = []; // gems that need to animate down
+  for (let c = 0; c < N; c++) {
+    let writeR = N - 1;
+    for (let r = N - 1; r >= 0; r--) {
+      if (board[r][c] !== null) {
+        if (writeR !== r) {
+          const gem = board[r][c];
+          board[r][c] = null;
+          board[writeR][c] = gem;
+          gem.dy = -((writeR - r) * CELL);
+          gem.dx = 0;
+          fallenInfo.push(gem);
+        }
+        writeR--;
+      }
+    }
+    // refill from above
+    for (let r = writeR; r >= 0; r--) {
+      const gem = newGem(rndColor());
+      gem.dy = -((writeR - r + 1 + r) * CELL); // roughly: how far above row r the gem starts visually
+      // simpler: start it at the top of the column
+      gem.dy = -((writeR + 1) * CELL);
+      board[r][c] = gem;
+      fallenInfo.push(gem);
+    }
+  }
+  if (!fallenInfo.length) return;
+  await tween(FALL_MS, (t) => {
+    for (const g of fallenInfo) g.dy = g._startDy != null ? g._startDy * (1 - t) : 0;
+  });
+  // safer impl: capture starting offsets
+  // (above tween is wrong since g._startDy was never set; redo correctly below)
+}
+
+// Clean reimplementation of gravityAndRefill with proper starting offsets.
+async function gravityAndRefillV2() {
+  const animating = [];
+  for (let c = 0; c < N; c++) {
+    // collect surviving gems from bottom-up
+    const stack = [];
+    for (let r = N - 1; r >= 0; r--) {
+      if (board[r][c] !== null) stack.push({ originalR: r, gem: board[r][c] });
+    }
+    // clear column
+    for (let r = 0; r < N; r++) board[r][c] = null;
+    // place survivors at bottom
+    let writeR = N - 1;
+    for (const { originalR, gem } of stack) {
+      board[writeR][c] = gem;
+      const startDy = (originalR - writeR) * CELL; // positive = needs to fall
+      gem.dy = -startDy; // visually starts above its new row
+      gem.dx = 0;
+      animating.push({ gem, startDy: -startDy });
+      writeR--;
+    }
+    // fill remaining slots from top with new gems, starting offscreen above
+    let stagger = 1;
+    for (let r = writeR; r >= 0; r--) {
+      const gem = newGem(rndColor());
+      const startDy = -((writeR - r + stagger) * CELL);
+      gem.dy = startDy;
+      gem.dx = 0;
+      board[r][c] = gem;
+      animating.push({ gem, startDy });
+      stagger++;
+    }
+  }
+  if (!animating.length) return;
+  await tween(FALL_MS, (t) => {
+    for (const { gem, startDy } of animating) {
+      gem.dy = startDy * (1 - t);
+    }
+  });
+  for (const { gem } of animating) gem.dy = 0;
+}
+
+// --- main resolve loop ---
+async function resolve(swapHint) {
+  busy = true;
+  let chain = 0;
+  while (true) {
+    const groups = findMatchGroups();
+    if (!groups.length) break;
+    chain++;
+    const spawns = detectSpecials(groups, chain === 1 ? swapHint : null);
+    const initial = [];
+    const seen = new Set();
+    for (const g of groups) for (const c of g.cells) {
+      const k = c.r * N + c.c;
+      if (!seen.has(k)) { seen.add(k); initial.push(c); }
+    }
+    const removed = expandRemoval(initial);
+    score += removed.length * 10 * Math.max(1, chain);
+    saved.totalMatchesEver = (saved.totalMatchesEver || 0) + groups.length;
+    scoreEl.textContent = score;
+    await animateClear(removed);
+    // place specials at seed cells (now empty)
+    for (const sp of spawns) {
+      if (board[sp.r][sp.c] === null) board[sp.r][sp.c] = newGem(sp.color, sp.special);
+    }
+    await gravityAndRefillV2();
+  }
+  if (chain > 0 && score > (saved.highScore || 0)) {
+    saved.highScore = score;
+    bestEl.textContent = saved.highScore;
+  }
+  GG.save(SLUG, saved);
+  if (!hasMove()) {
+    msgEl.textContent = "No moves — shuffling.";
+    shuffle();
+    await gravityAndRefillV2();
+    return resolve();
+  }
+  busy = false;
+}
+
+function hasMove() {
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    if (c + 1 < N && wouldMatch(r, c, r, c + 1)) return true;
+    if (r + 1 < N && wouldMatch(r, c, r + 1, c)) return true;
+  }
+  return false;
+}
+function wouldMatch(r1, c1, r2, c2) {
+  const A = board[r1][c1], B = board[r2][c2];
+  if (!A || !B) return false;
+  board[r1][c1] = B; board[r2][c2] = A;
+  const ok = findMatchGroups().length > 0;
+  board[r1][c1] = A; board[r2][c2] = B;
+  return ok;
+}
+function shuffle() {
+  const flat = [];
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) flat.push(board[r][c]);
+  for (let i = flat.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [flat[i], flat[j]] = [flat[j], flat[i]];
+  }
+  let i = 0;
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) board[r][c] = flat[i++];
+}
+
+// --- input ---
+async function trySwap(a, b) {
+  if (busy) return;
+  if (Math.abs(a.r - b.r) + Math.abs(a.c - b.c) !== 1) return;
+  const A = board[a.r][a.c], B = board[b.r][b.c];
+  if (!A || !B) return;
+  busy = true;
+  await animateSwap(a, b);
+  const groups = findMatchGroups();
+  const triggeredSpecial = (A.special) || (B.special);
+  if (!groups.length && !triggeredSpecial) {
+    // swap back
+    await animateSwap(a, b);
+    busy = false;
+    return;
+  }
+  if (mode === "moves") { movesLeft--; ctxEl.textContent = movesLeft; }
+  await resolve(b);
+  if (mode === "moves" && movesLeft <= 0) endRun();
+}
+
+let pointerStart = null; // { r, c, x, y }
+function cellAt(e) {
+  const rect = cv.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * cv.width / rect.width;
+  const y = (e.clientY - rect.top) * cv.height / rect.height;
+  return { r: Math.floor(y / CELL), c: Math.floor(x / CELL) };
+}
+
+cv.addEventListener("pointerdown", (e) => {
+  if (busy) return;
+  const cell = cellAt(e);
+  if (!inBounds(cell.r, cell.c)) return;
+  pointerStart = { ...cell, x: e.clientX, y: e.clientY };
+  cv.setPointerCapture(e.pointerId);
+});
+cv.addEventListener("pointermove", (e) => {
+  if (!pointerStart || busy) return;
+  const dx = e.clientX - pointerStart.x;
+  const dy = e.clientY - pointerStart.y;
+  if (Math.abs(dx) < 14 && Math.abs(dy) < 14) return;
+  let dir;
+  if (Math.abs(dx) > Math.abs(dy)) dir = { dr: 0, dc: Math.sign(dx) };
+  else                              dir = { dr: Math.sign(dy), dc: 0 };
+  const target = { r: pointerStart.r + dir.dr, c: pointerStart.c + dir.dc };
+  const from = { r: pointerStart.r, c: pointerStart.c };
+  pointerStart = null;
+  selected = null;
+  if (inBounds(target.r, target.c)) trySwap(from, target);
+});
+cv.addEventListener("pointerup", (e) => {
+  if (!pointerStart || busy) return;
+  const cell = cellAt(e);
+  pointerStart = null;
+  if (!inBounds(cell.r, cell.c)) return;
+  // pure click — manage selection
+  if (!selected) {
+    selected = cell;
+    return;
+  }
+  if (selected.r === cell.r && selected.c === cell.c) {
+    selected = null;
+    return;
+  }
+  const adj = Math.abs(selected.r - cell.r) + Math.abs(selected.c - cell.c) === 1;
+  if (adj) {
+    const a = selected;
+    selected = null;
+    trySwap(a, cell);
+  } else {
+    selected = cell;
+  }
+});
+
+// --- mode buttons ---
+document.querySelectorAll(".gs-modes button").forEach((b) => {
+  b.addEventListener("click", () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll(".gs-modes button").forEach((x) =>
+      x.classList.toggle("active", x === b)
+    );
+  });
+});
+document.querySelector('.gs-modes button[data-mode="endless"]').classList.add("active");
+
+document.getElementById("play").addEventListener("click", start);
+
+function start() {
+  if (timerId) clearInterval(timerId);
+  newBoard();
+  score = 0;
+  scoreEl.textContent = 0;
+  selected = null;
+  busy = false;
+  if (mode === "moves") {
+    movesLeft = 30;
+    ctxName.textContent = "Moves";
+    ctxEl.textContent = movesLeft;
+  } else if (mode === "timed") {
+    ctxName.textContent = "Time";
+    endsAt = performance.now() + 60_000;
+    ctxEl.textContent = "60";
+    timerId = setInterval(() => {
+      const left = Math.max(0, (endsAt - performance.now()) / 1000);
+      ctxEl.textContent = Math.ceil(left);
+      if (left <= 0) endRun();
+    }, 200);
+    movesLeft = Infinity;
+  } else {
+    ctxName.textContent = "Mode";
+    ctxEl.textContent = "Endless";
+    movesLeft = Infinity;
+  }
+  msgEl.textContent = "Click a gem then click an adjacent one. Or drag.";
+  // resolve any starting matches that survived board init
+  resolve();
+}
+
+function endRun() {
+  if (timerId) clearInterval(timerId);
+  busy = true;
+  let line = `Run over. Score ${score}.`;
+  if (score > (saved.highScore || 0)) { saved.highScore = score; line += " New best!"; }
+  if (mode === "endless" && score > (saved.bestEndlessRun || 0)) saved.bestEndlessRun = score;
+  GG.save(SLUG, saved);
+  bestEl.textContent = saved.highScore;
+  msgEl.textContent = line;
+}
+
+// --- drawing ---
+function drawGem(centerX, centerY, gem) {
+  if (!gem) return;
+  ctx.save();
+  ctx.globalAlpha = gem.alpha != null ? gem.alpha : 1;
+  ctx.translate(centerX, centerY);
+  ctx.scale(gem.scale != null ? gem.scale : 1, gem.scale != null ? gem.scale : 1);
+  ctx.fillStyle = COLORS[gem.color];
+  ctx.strokeStyle = "rgba(255,255,255,0.45)";
+  ctx.lineWidth = 2;
+  const shape = SHAPES[gem.color];
+  const r = CELL * 0.36;
+  ctx.beginPath();
+  if (shape === "circle") {
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+  } else if (shape === "diamond") {
+    ctx.moveTo(0, -r); ctx.lineTo(r, 0); ctx.lineTo(0, r); ctx.lineTo(-r, 0); ctx.closePath();
+  } else if (shape === "square") {
+    ctx.rect(-r, -r, r * 2, r * 2);
+  } else if (shape === "triangle") {
+    ctx.moveTo(0, -r); ctx.lineTo(r * 0.95, r * 0.7); ctx.lineTo(-r * 0.95, r * 0.7); ctx.closePath();
+  } else if (shape === "pentagon") {
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + i * (Math.PI * 2 / 5);
+      const px = Math.cos(a) * r, py = Math.sin(a) * r;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+  } else if (shape === "star") {
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + i * (Math.PI / 5);
+      const rr = i % 2 ? r * 0.45 : r;
+      const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+  }
+  ctx.fill(); ctx.stroke();
+  if (gem.special === "line") {
+    ctx.strokeStyle = "white"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-r, 0); ctx.lineTo(r, 0); ctx.stroke();
+  } else if (gem.special === "bomb") {
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.beginPath(); ctx.arc(0, 0, r * 0.5, 0, Math.PI * 2); ctx.fill();
+  } else if (gem.special === "color") {
+    ctx.fillStyle = "white";
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = i * (Math.PI / 4);
+      ctx[i ? "lineTo" : "moveTo"](Math.cos(a) * r * 0.6, Math.sin(a) * r * 0.6);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawAll() {
+  ctx.fillStyle = "#0e1430";
+  ctx.fillRect(0, 0, W, H);
+  // selection highlight
+  if (selected) {
+    ctx.fillStyle = "rgba(124, 92, 255, 0.18)";
+    ctx.fillRect(selected.c * CELL, selected.r * CELL, CELL, CELL);
+    ctx.strokeStyle = "#7c5cff";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(selected.c * CELL + 2, selected.r * CELL + 2, CELL - 4, CELL - 4);
+  }
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const gem = board[r][c];
+    if (!gem) continue;
+    const cx = c * CELL + CELL / 2 + (gem.dx || 0);
+    const cy = r * CELL + CELL / 2 + (gem.dy || 0);
+    drawGem(cx, cy, gem);
+  }
+}
+
+function renderLoop() {
+  drawAll();
+  requestAnimationFrame(renderLoop);
+}
+
+bestEl.textContent = saved.highScore || 0;
+newBoard();
+renderLoop();
+// kick off any starting matches
+resolve();
+</script>
+</body>
+</html>

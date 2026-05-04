@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Coal Clicker</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  :root { --coal: #1f1f1f; --ember: #f97316; }
+  body { background: linear-gradient(180deg, #1a1410 0%, #0a0e1f 100%); }
+  .cc-layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 16px;
+    width: 100%;
+    max-width: 980px;
+    flex: 1;
+  }
+  .cc-left, .cc-right {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .cc-left { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .cc-counter {
+    text-align: center;
+    line-height: 1.2;
+  }
+  .cc-counter .big {
+    font-size: 36px; font-weight: 800;
+    color: #f3f4ff;
+    text-shadow: 0 0 18px rgba(249, 115, 22, 0.35);
+  }
+  .cc-counter .rate { color: var(--text-dim); }
+  .cc-coal {
+    width: 240px; height: 240px;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 35% 30%, #4a3a2a, #1a1410 60%, #060304 100%);
+    box-shadow:
+      inset 0 -20px 40px rgba(0,0,0,0.6),
+      inset 0 20px 30px rgba(255, 120, 50, 0.15),
+      0 0 60px rgba(249, 115, 22, 0.18);
+    cursor: pointer;
+    transition: transform 0.08s ease;
+    user-select: none;
+    position: relative;
+  }
+  .cc-coal:active { transform: scale(0.97); }
+  .cc-coal::before {
+    content: "";
+    position: absolute; inset: 30%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(249,115,22,0.55), transparent 70%);
+    pointer-events: none;
+    animation: ember 2.4s ease-in-out infinite;
+  }
+  @keyframes ember { 50% { opacity: 0.4; transform: scale(0.92); } }
+  .cc-particles { position: relative; height: 0; width: 100%; }
+  .cc-pop {
+    position: absolute; pointer-events: none;
+    color: var(--ember); font-weight: 700;
+    font-size: 14px;
+    animation: pop 0.7s ease-out forwards;
+  }
+  @keyframes pop { to { transform: translateY(-40px); opacity: 0; } }
+  .cc-tag {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(249,115,22,0.18);
+    color: var(--ember);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .cc-up {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    width: 100%;
+    font: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .cc-up:hover:not(:disabled) { border-color: var(--accent); }
+  .cc-up:disabled { opacity: 0.5; cursor: not-allowed; }
+  .cc-up-row { display: flex; justify-content: space-between; gap: 8px; }
+  .cc-up-name { font-weight: 700; }
+  .cc-up-cost { color: var(--ember); font-weight: 600; }
+  .cc-up-desc { font-size: 12px; color: var(--text-dim); }
+  .cc-up-owned { font-size: 11px; color: var(--text-dim); }
+  .cc-section-title { font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; margin: 4px 0 8px; }
+  .cc-event {
+    background: rgba(124, 92, 255, 0.12);
+    border: 1px solid var(--accent);
+    border-radius: 10px;
+    padding: 8px 10px;
+    text-align: center;
+    font-size: 13px;
+  }
+  .cc-event.bad { background: rgba(248,113,113,0.12); border-color: var(--bad); }
+  .cc-event.good { background: rgba(52,211,153,0.12); border-color: var(--good); }
+  .cc-row { display: flex; gap: 8px; align-items: center; }
+  .cc-prestige {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border: 0; color: white; font-weight: 700;
+  }
+  @media (max-width: 720px) {
+    .cc-layout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="game-shell" style="height: 100%; padding: 12px;">
+  <div class="cc-layout">
+    <div class="cc-left">
+      <div class="cc-counter">
+        <div class="big" id="coal">0</div>
+        <div class="rate"><span id="rate">0</span> / sec · <span id="cpc">+1</span> per click</div>
+      </div>
+      <div id="event" class="cc-event" style="display:none"></div>
+      <div class="cc-coal" id="lump" title="Click! (or press space)"></div>
+      <div class="cc-particles" id="particles"></div>
+      <div class="cc-row" style="font-size: 13px; color: var(--text-dim);">
+        <span class="cc-tag" id="prestigeTag">0 ★</span>
+        <span>×<span id="multi">1.00</span> bonus</span>
+        <span>·</span>
+        <span>Lifetime <span id="totalCoal">0</span></span>
+      </div>
+      <button class="cc-up cc-prestige" id="prestige" style="display:none">
+        <div class="cc-up-row"><span class="cc-up-name">Sell the mine</span></div>
+        <div class="cc-up-desc" id="prestigeDesc"></div>
+      </button>
+    </div>
+    <div class="cc-right">
+      <div class="cc-section-title">Upgrades</div>
+      <div id="upgrades"></div>
+    </div>
+  </div>
+  <div class="game-message" id="msg" style="margin-top: 8px;">Click the coal. Save automatically. Earn while you're away.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "coal-clicker";
+
+// Each upgrade has a starting cost and either click power (cpc) or per-second (cps).
+// "mult" = multiplier applied to all coal earned (clicks + passive).
+const UPGRADES = [
+  { id: "wood",    name: "Wooden pickaxe",  desc: "+1 coal per click",          baseCost: 15,         scale: 1.15, cpc: 1 },
+  { id: "iron",    name: "Iron pickaxe",    desc: "+5 coal per click",          baseCost: 100,        scale: 1.15, cpc: 5 },
+  { id: "miner",   name: "Hired miner",     desc: "1 coal/sec",                 baseCost: 250,        scale: 1.15, cps: 1 },
+  { id: "cart",    name: "Coal cart",       desc: "10 coal/sec",                baseCost: 2_500,      scale: 1.15, cps: 10 },
+  { id: "drill",   name: "Mechanical drill",desc: "50 coal/sec",                baseCost: 30_000,     scale: 1.15, cps: 50 },
+  { id: "strip",   name: "Strip mine",      desc: "250 coal/sec",               baseCost: 400_000,    scale: 1.15, cps: 250 },
+  { id: "refine",  name: "Refinery",        desc: "All output × 2 (per buy)",   baseCost: 5_000_000,  scale: 4.0,  mult: 2 },
+  { id: "plant",   name: "Coal plant",      desc: "2,000 coal/sec",             baseCost: 75_000_000, scale: 1.18, cps: 2_000 },
+  { id: "empire",  name: "Coal empire",     desc: "10,000 coal/sec · unlocks prestige", baseCost: 1_500_000_000, scale: 1.20, cps: 10_000, unlocksPrestige: true },
+];
+
+const SUFFIXES = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+
+let state = GG.load(SLUG, null) || {};
+state = Object.assign({
+  coal: 0,
+  totalCoalEver: 0,
+  totalClicks: 0,
+  upgrades: {},
+  prestigePoints: 0,
+  lastSavedAt: Date.now(),
+  unlockedPrestige: false,
+}, state);
+state.upgrades = state.upgrades || {};
+
+let activeBoost = null; // { type, multiplier, until }
+
+// --- offline progress ---
+(function offlineGain() {
+  const cps = computeCps();
+  const elapsedMs = Math.max(0, Date.now() - (state.lastSavedAt || Date.now()));
+  const cappedSec = Math.min(8 * 3600, elapsedMs / 1000);
+  const gained = Math.floor(cps * cappedSec);
+  if (gained > 0 && cps > 0) {
+    state.coal += gained;
+    state.totalCoalEver += gained;
+    setTimeout(() => {
+      const banner = document.getElementById("event");
+      banner.className = "cc-event good";
+      banner.style.display = "block";
+      banner.textContent = `Welcome back! You earned ${fmt(gained)} coal while away.`;
+      setTimeout(() => banner.style.display = "none", 7000);
+    }, 200);
+  }
+})();
+
+// --- formatting ---
+function fmt(n) {
+  if (!isFinite(n)) return "∞";
+  if (n < 1000) return Math.floor(n).toLocaleString();
+  let i = 0;
+  while (n >= 1000 && i < SUFFIXES.length - 1) { n /= 1000; i++; }
+  const v = n < 10 ? n.toFixed(2) : n < 100 ? n.toFixed(1) : Math.floor(n);
+  return v + SUFFIXES[i];
+}
+
+// --- game math ---
+function priceOf(up) {
+  const owned = state.upgrades[up.id] || 0;
+  return Math.ceil(up.baseCost * Math.pow(up.scale, owned));
+}
+function multFromPrestige() {
+  return 1 + (state.prestigePoints || 0) * 0.01;
+}
+function multFromUpgrades() {
+  let m = 1;
+  for (const u of UPGRADES) {
+    if (!u.mult) continue;
+    const owned = state.upgrades[u.id] || 0;
+    if (owned > 0) m *= Math.pow(u.mult, owned);
+  }
+  return m;
+}
+function totalMult() {
+  return multFromPrestige() * multFromUpgrades();
+}
+function activeBoostMult(isClick) {
+  if (!activeBoost) return 1;
+  if (Date.now() > activeBoost.until) { activeBoost = null; return 1; }
+  if (activeBoost.type === "vein") return activeBoost.multiplier;
+  if (activeBoost.type === "tourist" && isClick) return activeBoost.multiplier;
+  return 1;
+}
+function computeCpc() {
+  let cpc = 1;
+  for (const u of UPGRADES) {
+    if (!u.cpc) continue;
+    cpc += (state.upgrades[u.id] || 0) * u.cpc;
+  }
+  return cpc * totalMult() * activeBoostMult(true);
+}
+function computeCps() {
+  let cps = 0;
+  for (const u of UPGRADES) {
+    if (!u.cps) continue;
+    cps += (state.upgrades[u.id] || 0) * u.cps;
+  }
+  return cps * totalMult() * activeBoostMult(false);
+}
+
+// --- DOM ---
+const coalEl = document.getElementById("coal");
+const rateEl = document.getElementById("rate");
+const cpcEl = document.getElementById("cpc");
+const lumpEl = document.getElementById("lump");
+const upgradesEl = document.getElementById("upgrades");
+const totalEl = document.getElementById("totalCoal");
+const multEl = document.getElementById("multi");
+const ptag = document.getElementById("prestigeTag");
+const prestigeBtn = document.getElementById("prestige");
+const prestigeDesc = document.getElementById("prestigeDesc");
+const eventEl = document.getElementById("event");
+const particlesEl = document.getElementById("particles");
+
+const upgradeNodes = {};
+function buildUpgrades() {
+  upgradesEl.innerHTML = "";
+  UPGRADES.forEach((u) => {
+    const btn = document.createElement("button");
+    btn.className = "cc-up";
+    btn.innerHTML = `
+      <div class="cc-up-row">
+        <span class="cc-up-name">${u.name}</span>
+        <span class="cc-up-cost"></span>
+      </div>
+      <div class="cc-up-desc">${u.desc}</div>
+      <div class="cc-up-owned"></div>
+    `;
+    btn.addEventListener("click", () => buy(u));
+    upgradesEl.appendChild(btn);
+    upgradeNodes[u.id] = {
+      btn,
+      cost: btn.querySelector(".cc-up-cost"),
+      owned: btn.querySelector(".cc-up-owned"),
+    };
+  });
+}
+function refreshUpgrades() {
+  for (const u of UPGRADES) {
+    const n = upgradeNodes[u.id];
+    if (!n) continue;
+    const owned = state.upgrades[u.id] || 0;
+    const price = priceOf(u);
+    n.btn.disabled = state.coal < price;
+    n.cost.textContent = fmt(price);
+    n.owned.textContent = "Owned: " + owned;
+  }
+}
+
+function buy(u) {
+  const price = priceOf(u);
+  if (state.coal < price) return;
+  state.coal -= price;
+  state.upgrades[u.id] = (state.upgrades[u.id] || 0) + 1;
+  if (u.unlocksPrestige) state.unlockedPrestige = true;
+  saveAndRender();
+}
+
+function pop(amount) {
+  const el = document.createElement("div");
+  el.className = "cc-pop";
+  el.textContent = "+" + fmt(amount);
+  el.style.left = (Math.random() * 80 + 10) + "%";
+  particlesEl.appendChild(el);
+  setTimeout(() => el.remove(), 700);
+}
+
+function click() {
+  const gain = computeCpc();
+  state.coal += gain;
+  state.totalCoalEver += gain;
+  state.totalClicks++;
+  pop(gain);
+  render();
+  scheduleSave();
+}
+
+lumpEl.addEventListener("mousedown", click);
+window.addEventListener("keydown", (e) => {
+  if (e.key === " " || e.code === "Space") { e.preventDefault(); click(); }
+});
+
+// --- prestige ---
+function prestigePointsFor(coalEver) {
+  // gain ~1 point per 1e9 lifetime coal, sqrt-scaled
+  return Math.floor(Math.sqrt(coalEver / 1e9));
+}
+
+function updatePrestige() {
+  if (!state.unlockedPrestige) {
+    prestigeBtn.style.display = "none";
+    return;
+  }
+  const gain = prestigePointsFor(state.totalCoalEver);
+  prestigeBtn.style.display = gain > 0 ? "block" : "none";
+  prestigeDesc.textContent = `Reset progress for ${gain} prestige point${gain === 1 ? "" : "s"} · permanent +${gain}% multiplier`;
+}
+
+prestigeBtn.addEventListener("click", () => {
+  const gain = prestigePointsFor(state.totalCoalEver);
+  if (gain <= 0) return;
+  if (!confirm(`Reset coal and upgrades for ${gain} prestige points?`)) return;
+  state.prestigePoints = (state.prestigePoints || 0) + gain;
+  state.coal = 0;
+  state.totalCoalEver = 0;
+  state.upgrades = {};
+  state.unlockedPrestige = false;
+  banner("good", `You earned ${gain} prestige point${gain === 1 ? "" : "s"}!`);
+  saveAndRender();
+});
+
+// --- random events ---
+function maybeEvent() {
+  if (state.totalCoalEver < 1000) return;
+  const now = Date.now();
+  if (state._nextEvent == null) state._nextEvent = now + (60 + Math.random() * 120) * 1000;
+  if (now < state._nextEvent) return;
+  const r = Math.random();
+  if (r < 0.33) {
+    const lost = Math.floor(state.coal * 0.05);
+    state.coal -= lost;
+    banner("bad", `Cave-in! Lost ${fmt(lost)} coal.`);
+  } else if (r < 0.66) {
+    activeBoost = { type: "vein", multiplier: 2, until: now + 60_000 };
+    banner("good", "Coal vein discovered! Output ×2 for 60s.");
+  } else {
+    activeBoost = { type: "tourist", multiplier: 3, until: now + 30_000 };
+    banner("good", "Tourist visits! Click power ×3 for 30s.");
+  }
+  state._nextEvent = now + (180 + Math.random() * 240) * 1000;
+}
+
+function banner(kind, text) {
+  eventEl.className = "cc-event " + (kind === "bad" ? "bad" : "good");
+  eventEl.style.display = "block";
+  eventEl.textContent = text;
+  setTimeout(() => eventEl.style.display = "none", 5500);
+}
+
+// --- render & loop ---
+function render() {
+  coalEl.textContent = fmt(state.coal);
+  rateEl.textContent = fmt(computeCps());
+  cpcEl.textContent = "+" + fmt(computeCpc());
+  totalEl.textContent = fmt(state.totalCoalEver);
+  multEl.textContent = totalMult().toFixed(2);
+  ptag.textContent = (state.prestigePoints || 0) + " ★";
+  refreshUpgrades();
+  updatePrestige();
+}
+
+function saveAndRender() {
+  render();
+}
+
+let lastTick = performance.now();
+function loop(now) {
+  const dt = (now - lastTick) / 1000;
+  lastTick = now;
+  state.coal += computeCps() * dt;
+  state.totalCoalEver += computeCps() * dt;
+  render();
+  maybeEvent();
+  requestAnimationFrame(loop);
+}
+
+let saveTimer = null;
+function scheduleSave() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    state.lastSavedAt = Date.now();
+    GG.save(SLUG, state);
+    saveTimer = null;
+  }, 1000);
+}
+setInterval(() => { state.lastSavedAt = Date.now(); GG.save(SLUG, state); }, 5000);
+window.addEventListener("pagehide", () => { state.lastSavedAt = Date.now(); GG.save(SLUG, state); });
+window.addEventListener("beforeunload", () => { state.lastSavedAt = Date.now(); GG.save(SLUG, state); });
+
+buildUpgrades();
+render();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

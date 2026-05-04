@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Typing Race</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .tr-stage {
+    position: relative;
+    width: 640px; height: 460px;
+    background: linear-gradient(180deg, #0a0e1f 0%, #161a3a 100%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+  .tr-stage::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 38px;
+    height: 2px; background: rgba(248, 113, 113, 0.5);
+  }
+  .tr-word {
+    position: absolute;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: rgba(20, 22, 50, 0.85);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: ui-monospace, "Cascadia Mono", "Fira Code", monospace;
+    font-size: 18px;
+    white-space: nowrap;
+  }
+  .tr-word.targeted { border-color: var(--accent); box-shadow: 0 0 12px rgba(124, 92, 255, 0.45); }
+  .tr-word .matched { color: var(--good); }
+  .tr-word .pending { color: var(--text); }
+  .tr-input {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 10px;
+    font: inherit;
+    font-family: ui-monospace, monospace;
+    width: 320px;
+  }
+  .tr-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tr-modes button.active, .tr-difs button.active { border-color: var(--accent); }
+  .tr-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Lives: <strong id="lives">3</strong></span>
+    <span>WPM: <strong id="wpm">0</strong></span>
+    <span>Accuracy: <strong id="acc">100%</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <div class="tr-row tr-modes">
+    <button class="game-btn" data-mode="endless">Endless</button>
+    <button class="game-btn" data-mode="timed">Timed 60s</button>
+  </div>
+  <div class="tr-row tr-difs">
+    <button class="game-btn" data-dif="easy">Easy</button>
+    <button class="game-btn" data-dif="medium">Medium</button>
+    <button class="game-btn" data-dif="hard">Hard</button>
+  </div>
+  <div class="tr-stage" id="stage"></div>
+  <input class="tr-input" id="inp" placeholder="Click play and start typing…" autocomplete="off" spellcheck="false" disabled>
+  <div class="game-message" id="msg">Type the word as it falls. Lowest visible match wins.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script src="words.js"></script>
+<script>
+const SLUG = "typing-race";
+const POOL = { easy: window.GG_TR_EASY, medium: window.GG_TR_MEDIUM, hard: window.GG_TR_HARD };
+
+let saved = GG.load(SLUG, {
+  bestScore: 0, bestWPM: 0, totalWordsTyped: 0,
+  charsCorrect: 0, charsTotal: 0,
+}) || {};
+saved = Object.assign({
+  bestScore: 0, bestWPM: 0, totalWordsTyped: 0, charsCorrect: 0, charsTotal: 0,
+}, saved);
+
+const stage = document.getElementById("stage");
+const inp = document.getElementById("inp");
+const scoreEl = document.getElementById("score");
+const livesEl = document.getElementById("lives");
+const wpmEl = document.getElementById("wpm");
+const accEl = document.getElementById("acc");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+
+let mode = "endless";
+let dif = "easy";
+let active = false;
+let words = [];   // { text, x, y, vy, el, typed }
+let score = 0;
+let lives = 3;
+let startedAt = 0;
+let endsAt = 0;
+let charsCorrect = 0;
+let charsThisRun = 0;
+let lastSpawn = 0;
+let nextSpawnAt = 0;
+let raf = null;
+
+const STAGE_W = 640, STAGE_H = 460;
+
+function pickWord() {
+  const list = POOL[dif];
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function spawnWord(now) {
+  const text = pickWord();
+  const el = document.createElement("div");
+  el.className = "tr-word";
+  el.innerHTML = `<span class="matched"></span><span class="pending">${text}</span>`;
+  stage.appendChild(el);
+  // measure to keep within bounds
+  const w = el.offsetWidth || 80;
+  // pixels per second; stage is ~460 tall so 35 px/s ≈ 13 s to fall
+  const baseSpeed = dif === "hard" ? 60 : dif === "medium" ? 45 : 35;
+  const ramp = mode === "timed" ? 0 : Math.min(40, score * 0.5);
+  const vy = (baseSpeed + ramp + Math.random() * 8) / 1000; // px per ms
+  const wd = {
+    text,
+    x: 8 + Math.random() * (STAGE_W - w - 16),
+    y: -28,
+    vy,
+    el,
+    typed: 0,
+    spawned: now,
+  };
+  el.style.left = wd.x + "px";
+  el.style.top = wd.y + "px";
+  words.push(wd);
+}
+
+function pickTarget(prefix) {
+  // lowest visible word starting with prefix; ties broken by lowest y
+  let best = null;
+  for (const w of words) {
+    if (!w.text.startsWith(prefix)) continue;
+    if (!best || w.y > best.y) best = w;
+  }
+  return best;
+}
+
+function updateInputClass() {
+  const v = inp.value;
+  if (!v.length) {
+    for (const w of words) {
+      w.el.classList.remove("targeted");
+      w.el.children[0].textContent = "";
+      w.el.children[1].textContent = w.text;
+    }
+    return;
+  }
+  const target = pickTarget(v);
+  for (const w of words) {
+    w.el.classList.toggle("targeted", w === target);
+    if (w === target) {
+      w.el.children[0].textContent = v;
+      w.el.children[1].textContent = w.text.slice(v.length);
+    } else {
+      w.el.children[0].textContent = "";
+      w.el.children[1].textContent = w.text;
+    }
+  }
+  if (target && v === target.text) {
+    completeWord(target);
+    inp.value = "";
+    updateInputClass();
+  }
+}
+
+function completeWord(w) {
+  score++;
+  saved.totalWordsTyped++;
+  charsCorrect += w.text.length;
+  scoreEl.textContent = score;
+  w.el.remove();
+  words = words.filter((x) => x !== w);
+}
+
+function loseLife() {
+  lives--;
+  livesEl.textContent = lives;
+  if (lives <= 0) endRound("Out of lives.");
+}
+
+function loop(now) {
+  if (!active) return;
+  // spawn cadence
+  if (now >= nextSpawnAt) {
+    spawnWord(now);
+    const base = mode === "timed" ? 1000 : Math.max(750, 1500 - score * 25);
+    nextSpawnAt = now + base + Math.random() * 400;
+  }
+  // movement
+  const dt = lastSpawn ? Math.min(33, now - lastSpawn) : 16;
+  lastSpawn = now;
+  for (const w of words.slice()) {
+    w.y += w.vy * dt;
+    w.el.style.top = w.y + "px";
+    if (w.y > STAGE_H - 38 - 26) {
+      w.el.remove();
+      words = words.filter((x) => x !== w);
+      loseLife();
+    }
+  }
+  // stats
+  const elapsedMin = (performance.now() - startedAt) / 60000;
+  const wpm = elapsedMin > 0 ? Math.round((charsCorrect / 5) / elapsedMin) : 0;
+  wpmEl.textContent = wpm;
+  if (saved.charsTotal > 0) {
+    accEl.textContent = Math.round((saved.charsCorrect / saved.charsTotal) * 100) + "%";
+  }
+  // timed end
+  if (mode === "timed" && performance.now() >= endsAt) {
+    return endRound("Time's up.");
+  }
+  raf = requestAnimationFrame(loop);
+}
+
+inp.addEventListener("input", () => {
+  // count typed chars for accuracy
+  const v = inp.value;
+  if (v.length) {
+    saved.charsTotal++;
+    const target = pickTarget(v);
+    if (target) {
+      const correctSoFar = target.text.startsWith(v);
+      if (correctSoFar) saved.charsCorrect++;
+    }
+  }
+  updateInputClass();
+});
+inp.addEventListener("keydown", (e) => {
+  if (e.key === "Backspace") {
+    // pretend we don't punish for backspace
+  }
+});
+
+document.querySelectorAll(".tr-modes button").forEach((b) => {
+  b.addEventListener("click", () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll(".tr-modes button").forEach((x) =>
+      x.classList.toggle("active", x === b)
+    );
+  });
+});
+document.querySelector('.tr-modes button[data-mode="endless"]').classList.add("active");
+document.querySelectorAll(".tr-difs button").forEach((b) => {
+  b.addEventListener("click", () => {
+    dif = b.dataset.dif;
+    document.querySelectorAll(".tr-difs button").forEach((x) =>
+      x.classList.toggle("active", x === b)
+    );
+  });
+});
+document.querySelector('.tr-difs button[data-dif="easy"]').classList.add("active");
+
+function start() {
+  if (raf) cancelAnimationFrame(raf);
+  for (const w of words) w.el.remove();
+  words = [];
+  score = 0; lives = 3; charsCorrect = 0; charsThisRun = 0;
+  scoreEl.textContent = 0; livesEl.textContent = 3; wpmEl.textContent = 0;
+  active = true;
+  inp.disabled = false;
+  inp.value = "";
+  inp.focus();
+  startedAt = performance.now();
+  endsAt = startedAt + 60_000;
+  lastSpawn = 0;
+  nextSpawnAt = startedAt + 600;
+  msgEl.textContent = mode === "timed"
+    ? "60 seconds. Type as many as you can."
+    : "Endless. 3 misses and you're out.";
+  raf = requestAnimationFrame(loop);
+}
+
+function endRound(reason) {
+  active = false;
+  if (raf) cancelAnimationFrame(raf);
+  inp.disabled = true;
+  const elapsedMin = (performance.now() - startedAt) / 60000;
+  const wpm = elapsedMin > 0 ? Math.round((charsCorrect / 5) / elapsedMin) : 0;
+  let line = `${reason} Score ${score}, ${wpm} WPM.`;
+  if (score > saved.bestScore) { saved.bestScore = score; line += " New best!"; }
+  if (wpm > saved.bestWPM) { saved.bestWPM = wpm; line += ` Best WPM ${wpm}!`; }
+  GG.save(SLUG, saved);
+  bestEl.textContent = saved.bestScore;
+  msgEl.textContent = line;
+}
+
+document.getElementById("play").addEventListener("click", start);
+bestEl.textContent = saved.bestScore;
+if (saved.charsTotal > 0) accEl.textContent = Math.round((saved.charsCorrect / saved.charsTotal) * 100) + "%";
+</script>
+</body>
+</html>

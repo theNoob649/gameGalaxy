@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trivia</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .tr-wrap { max-width: 600px; width: 100%; }
+  .tr-cat-row { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+  .tr-cat-row button.active { border-color: var(--accent); }
+  .tr-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 18px 22px;
+    margin-top: 12px;
+  }
+  .tr-meta { color: var(--text-dim); font-size: 12px; display: flex; justify-content: space-between; margin-bottom: 8px; }
+  .tr-q { font-size: 18px; font-weight: 600; margin: 4px 0 14px; }
+  .tr-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tr-choice {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .tr-choice:hover:not(:disabled) { border-color: var(--accent); }
+  .tr-choice.correct { background: rgba(52,211,153,0.16); border-color: var(--good); }
+  .tr-choice.wrong   { background: rgba(248,113,113,0.16); border-color: var(--bad); }
+  .tr-bar { display: flex; gap: 16px; align-items: center; margin-top: 12px; font-size: 14px; color: var(--text-dim); }
+  .tr-pill {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  @media (max-width: 480px) { .tr-choices { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Streak: <strong id="streak">0</strong></span>
+    <span>Best streak: <strong id="bestStreak">0</strong></span>
+    <span>Lives: <strong id="lives">—</strong></span>
+  </div>
+  <div class="tr-wrap">
+    <div class="tr-cat-row" id="modes">
+      <button class="game-btn" data-mode="quick">Quick (10)</button>
+      <button class="game-btn" data-mode="survival">Survival</button>
+      <button class="game-btn" data-mode="category">Category</button>
+    </div>
+    <div class="tr-cat-row" id="cats" style="margin-top: 8px;"></div>
+    <div class="tr-card">
+      <div class="tr-meta">
+        <span id="qmeta">Pick a mode to begin.</span>
+        <span class="tr-pill" id="cattag">Any</span>
+      </div>
+      <div class="tr-q" id="q">Loading...</div>
+      <div class="tr-choices" id="choices"></div>
+      <div class="tr-bar">
+        <button class="game-btn primary" id="next">Start</button>
+        <span id="msg"></span>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "trivia";
+const API = "https://opentdb.com/api.php";
+const CATS = [
+  { id: 0,  name: "Any" },
+  { id: 9,  name: "General" },
+  { id: 17, name: "Science" },
+  { id: 23, name: "History" },
+  { id: 22, name: "Geography" },
+  { id: 21, name: "Sports" },
+  { id: 11, name: "Film" },
+  { id: 14, name: "TV" },
+  { id: 12, name: "Music" },
+  { id: 15, name: "Games" },
+  { id: 25, name: "Art" },
+  { id: 20, name: "Mythology" },
+];
+
+let saved = GG.load(SLUG, {
+  totalQuestionsAnswered: 0,
+  totalCorrect: 0,
+  bestStreak: 0,
+  bestScoreByCategory: {},
+  favoriteCategory: null,
+  _catCounts: {},
+}) || {};
+saved = Object.assign({
+  totalQuestionsAnswered: 0, totalCorrect: 0, bestStreak: 0,
+  bestScoreByCategory: {}, favoriteCategory: null, _catCounts: {},
+}, saved);
+
+const scoreEl = document.getElementById("score");
+const streakEl = document.getElementById("streak");
+const bestStreakEl = document.getElementById("bestStreak");
+const livesEl = document.getElementById("lives");
+const qEl = document.getElementById("q");
+const choicesEl = document.getElementById("choices");
+const metaEl = document.getElementById("qmeta");
+const catTag = document.getElementById("cattag");
+const nextBtn = document.getElementById("next");
+const msgEl = document.getElementById("msg");
+const catsRow = document.getElementById("cats");
+
+let mode = "quick";
+let categoryId = 0;
+let cache = [];
+let current = null;
+let score = 0;
+let streak = 0;
+let lives = Infinity;
+let questionsThisRound = 0;
+let roundLength = 10;
+let active = false;
+
+bestStreakEl.textContent = saved.bestStreak;
+
+function decodeHtml(s) {
+  const t = document.createElement("textarea");
+  t.innerHTML = s;
+  return t.value;
+}
+
+function shuffled(a) {
+  const r = a.slice();
+  for (let i = r.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [r[i], r[j]] = [r[j], r[i]];
+  }
+  return r;
+}
+
+async function fillCache() {
+  if (cache.length > 5) return;
+  const params = new URLSearchParams({ amount: "30", type: "multiple", encode: "url3986" });
+  if (categoryId) params.set("category", String(categoryId));
+  try {
+    const res = await fetch(`${API}?${params.toString()}`);
+    const data = await res.json();
+    if (!data.results) return;
+    for (const r of data.results) {
+      const decode = (s) => decodeHtml(decodeURIComponent(s));
+      cache.push({
+        category: decode(r.category),
+        difficulty: r.difficulty,
+        question: decode(r.question),
+        correct: decode(r.correct_answer),
+        choices: shuffled(r.incorrect_answers.map(decode).concat([decode(r.correct_answer)])),
+      });
+    }
+  } catch (e) {
+    msgEl.textContent = "Couldn't reach the trivia server.";
+  }
+}
+
+async function nextQuestion() {
+  if (!active) return;
+  if (mode === "quick" && questionsThisRound >= roundLength) return endRound();
+  if (mode === "category" && questionsThisRound >= 10) return endRound();
+
+  await fillCache();
+  current = cache.shift();
+  if (!current) {
+    msgEl.textContent = "No questions available — try another category.";
+    return;
+  }
+  questionsThisRound++;
+  metaEl.textContent = `Question ${questionsThisRound}${mode === "survival" ? "" : " of " + (mode === "category" ? 10 : roundLength)} · ${current.difficulty}`;
+  catTag.textContent = current.category;
+  qEl.textContent = current.question;
+  choicesEl.innerHTML = "";
+  for (const c of current.choices) {
+    const btn = document.createElement("button");
+    btn.className = "tr-choice";
+    btn.textContent = c;
+    btn.addEventListener("click", () => onAnswer(c, btn));
+    choicesEl.appendChild(btn);
+  }
+  msgEl.textContent = "";
+  nextBtn.textContent = "Skip";
+  nextBtn.disabled = false;
+}
+
+function onAnswer(choice, btn) {
+  if (!current) return;
+  for (const b of choicesEl.children) b.disabled = true;
+  saved.totalQuestionsAnswered++;
+  saved._catCounts[current.category] = (saved._catCounts[current.category] || 0) + 1;
+  saved.favoriteCategory = Object.entries(saved._catCounts)
+    .sort((a, b) => b[1] - a[1])[0][0];
+
+  const correct = choice === current.correct;
+  if (correct) {
+    saved.totalCorrect++;
+    score++; streak++;
+    if (streak > saved.bestStreak) {
+      saved.bestStreak = streak;
+      bestStreakEl.textContent = streak;
+    }
+    btn.classList.add("correct");
+    msgEl.textContent = "Correct!";
+  } else {
+    btn.classList.add("wrong");
+    streak = 0;
+    if (mode === "survival") {
+      lives--;
+      livesEl.textContent = lives;
+    }
+    // highlight the right answer
+    for (const b of choicesEl.children) {
+      if (b.textContent === current.correct) b.classList.add("correct");
+    }
+    msgEl.textContent = `Answer: ${current.correct}`;
+  }
+  scoreEl.textContent = score;
+  streakEl.textContent = streak;
+  GG.save(SLUG, saved);
+
+  if (mode === "survival" && lives <= 0) return endRound();
+  nextBtn.textContent = "Next";
+}
+
+function endRound() {
+  active = false;
+  current = null;
+  qEl.textContent = "Round over.";
+  choicesEl.innerHTML = "";
+  const accuracy = questionsThisRound ? Math.round((score / questionsThisRound) * 100) : 0;
+  msgEl.textContent = `Score ${score}/${questionsThisRound} (${accuracy}%).`;
+  // category best
+  const tag = mode === "category" ? CATS.find((c) => c.id === categoryId)?.name : null;
+  if (tag) {
+    const prev = saved.bestScoreByCategory[tag] || 0;
+    if (score > prev) saved.bestScoreByCategory[tag] = score;
+  }
+  GG.save(SLUG, saved);
+  nextBtn.textContent = "Start";
+}
+
+function startRound() {
+  active = true;
+  score = 0; streak = 0;
+  questionsThisRound = 0;
+  scoreEl.textContent = 0; streakEl.textContent = 0;
+  if (mode === "survival") { lives = 3; livesEl.textContent = lives; }
+  else { lives = Infinity; livesEl.textContent = "—"; }
+  cache = [];  // refresh cache so category change takes effect
+  nextQuestion();
+}
+
+nextBtn.addEventListener("click", () => {
+  if (!active) startRound();
+  else nextQuestion();
+});
+
+document.querySelectorAll("#modes button").forEach((b) => {
+  b.addEventListener("click", () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll("#modes button").forEach((x) => x.classList.toggle("active", x === b));
+    catsRow.style.display = (mode === "category") ? "flex" : "none";
+    if (mode !== "category") categoryId = 0;
+    if (active) endRound();
+  });
+});
+document.querySelector('#modes button[data-mode="quick"]').classList.add("active");
+
+CATS.forEach((c) => {
+  const btn = document.createElement("button");
+  btn.className = "game-btn";
+  btn.textContent = c.name;
+  if (c.id === 0) btn.classList.add("active");
+  btn.addEventListener("click", () => {
+    categoryId = c.id;
+    document.querySelectorAll("#cats button").forEach((x) => x.classList.toggle("active", x === btn));
+    if (active) endRound();
+  });
+  catsRow.appendChild(btn);
+});
+catsRow.style.display = "none";
+
+qEl.textContent = "Pick a mode and press Start.";
+metaEl.textContent = "";
+</script>
+</body>
+</html>

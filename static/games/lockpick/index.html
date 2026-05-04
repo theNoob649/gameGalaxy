@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lockpick</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .lp-stage { position: relative; }
+  canvas { box-shadow: 0 8px 30px rgba(0,0,0,0.4); }
+  .lp-skin {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .lp-pins { display: flex; gap: 6px; }
+  .lp-pin {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--panel); border: 1px solid var(--border);
+  }
+  .lp-pin.done { background: var(--good); border-color: var(--good); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Level: <strong id="level">1</strong></span>
+    <span>Best: <strong id="best">1</strong></span>
+    <span>Streak: <strong id="streak">0</strong></span>
+    <span class="lp-skin" id="skin">Padlock</span>
+    <button class="game-btn primary" id="play">Start</button>
+  </div>
+  <div class="lp-stage">
+    <canvas id="cv" width="380" height="380"></canvas>
+  </div>
+  <div class="lp-pins" id="pins"></div>
+  <div class="game-message" id="msg">Click / spacebar / tap when the pin lines up with the gold zone.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "lockpick";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const CX = W / 2, CY = H / 2;
+const RADIUS = 140;
+
+let saved = GG.load(SLUG, {
+  currentLevel: 1, bestLevel: 1, totalLocksPicked: 0,
+  currentStreak: 0, bestStreak: 0,
+}) || {};
+const defaults = { currentLevel: 1, bestLevel: 1, totalLocksPicked: 0, currentStreak: 0, bestStreak: 0 };
+saved = Object.assign({}, defaults, saved);
+
+const levelEl = document.getElementById("level");
+const bestEl = document.getElementById("best");
+const streakEl = document.getElementById("streak");
+const skinEl = document.getElementById("skin");
+const pinsEl = document.getElementById("pins");
+const msgEl = document.getElementById("msg");
+
+let level, pinsTotal, pinIndex, target, pinAngle, pinSpeed, dir, alive, opening, openingT, shake, shakeT;
+
+function paramsForLevel(L) {
+  // target zone (degrees), pins per lock, base speed (radians/sec)
+  let tDeg, pins, speed, reverseChance;
+  if (L <= 10)      { tDeg = 30; pins = 3; speed = 1.4 + L * 0.05; reverseChance = 0; }
+  else if (L <= 25) { tDeg = 22 - (L - 10) * 0.3; pins = 4; speed = 1.9 + (L - 10) * 0.05; reverseChance = 0; }
+  else if (L <= 50) { tDeg = 14 - (L - 25) * 0.1; pins = 5; speed = 2.5 + (L - 25) * 0.04; reverseChance = 0.05; }
+  else              { tDeg = Math.max(8, 12 - (L - 50) * 0.05); pins = 6; speed = 3.2 + (L - 50) * 0.03; reverseChance = 0.18; }
+  return { tDeg, pins, speed: Math.min(6, speed), reverseChance };
+}
+
+function skinForLevel(L) {
+  if (L < 10)  return { name: "Padlock",        body: "#3a3a3a", ring: "#1a1a1a", accent: "#7c5cff" };
+  if (L < 20)  return { name: "Combination",    body: "#475569", ring: "#0f172a", accent: "#34d399" };
+  if (L < 30)  return { name: "Bank Safe",      body: "#1f2937", ring: "#111827", accent: "#fbbf24" };
+  if (L < 40)  return { name: "Vault Wheel",    body: "#3b1d5a", ring: "#1a0e2c", accent: "#fb7185" };
+  if (L < 50)  return { name: "Keypad",         body: "#0e7490", ring: "#083344", accent: "#67e8f9" };
+  return         { name: "Laser Grid",      body: "#1e1b4b", ring: "#0b0f2c", accent: "#a78bfa" };
+}
+
+function newLock() {
+  level = saved.currentLevel || 1;
+  const p = paramsForLevel(level);
+  pinsTotal = p.pins;
+  pinIndex = 0;
+  pinSpeed = p.speed;
+  dir = 1;
+  pinAngle = -Math.PI / 2; // start at top
+  randomizeTarget();
+  alive = true;
+  opening = false; openingT = 0; shake = 0; shakeT = 0;
+  levelEl.textContent = level;
+  skinEl.textContent = skinForLevel(level).name;
+  msgEl.textContent = `Lock ${level}: ${pinsTotal} pins.`;
+  renderPins();
+}
+
+function randomizeTarget() {
+  const p = paramsForLevel(level);
+  // pick a target angle not already taken (in degrees)
+  const tHalf = (p.tDeg / 2) * Math.PI / 180;
+  let a;
+  do {
+    a = Math.random() * Math.PI * 2 - Math.PI;
+  } while (Math.abs(angDiff(a, pinAngle)) < tHalf + 0.4);
+  target = { angle: a, halfWidth: tHalf };
+}
+
+function angDiff(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+function renderPins() {
+  pinsEl.innerHTML = "";
+  for (let i = 0; i < pinsTotal; i++) {
+    const el = document.createElement("div");
+    el.className = "lp-pin" + (i < pinIndex ? " done" : "");
+    pinsEl.appendChild(el);
+  }
+}
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+
+  if (alive && !opening) {
+    pinAngle += pinSpeed * dir * dt;
+    // occasional reverse on hard levels
+    const p = paramsForLevel(level);
+    if (p.reverseChance && Math.random() < p.reverseChance * dt) dir = -dir;
+  }
+  if (opening) {
+    openingT += dt;
+    if (openingT > 0.6) {
+      // advance level and start the next lock
+      saved.currentLevel = level + 1;
+      saved.totalLocksPicked = (saved.totalLocksPicked || 0) + 1;
+      saved.currentStreak = (saved.currentStreak || 0);
+      if (saved.currentLevel - 1 > saved.bestLevel) saved.bestLevel = saved.currentLevel - 1;
+      bestEl.textContent = saved.bestLevel;
+      GG.save(SLUG, saved);
+      newLock();
+    }
+  }
+  if (shakeT > 0) shakeT -= dt;
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function draw() {
+  ctx.save();
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+
+  const sk = skinForLevel(level || 1);
+  let ox = 0, oy = 0;
+  if (shakeT > 0) {
+    const m = shakeT * 8;
+    ox = (Math.random() - 0.5) * m;
+    oy = (Math.random() - 0.5) * m;
+  }
+  ctx.translate(ox, oy);
+
+  // outer ring
+  ctx.lineWidth = 14;
+  ctx.strokeStyle = sk.ring;
+  ctx.beginPath(); ctx.arc(CX, CY, RADIUS + 18, 0, Math.PI * 2); ctx.stroke();
+  // body
+  ctx.fillStyle = sk.body;
+  ctx.beginPath(); ctx.arc(CX, CY, RADIUS + 4, 0, Math.PI * 2); ctx.fill();
+  // inner well
+  ctx.fillStyle = "#0e1430";
+  ctx.beginPath(); ctx.arc(CX, CY, RADIUS - 8, 0, Math.PI * 2); ctx.fill();
+
+  // tick marks
+  ctx.strokeStyle = "rgba(243,244,255,0.18)";
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const r1 = RADIUS - 14, r2 = RADIUS - 6;
+    ctx.beginPath();
+    ctx.moveTo(CX + Math.cos(a) * r1, CY + Math.sin(a) * r1);
+    ctx.lineTo(CX + Math.cos(a) * r2, CY + Math.sin(a) * r2);
+    ctx.stroke();
+  }
+
+  // target arc
+  if (target && alive) {
+    const flash = opening ? 0.5 + Math.sin(openingT * 30) * 0.5 : 1;
+    ctx.lineWidth = 14;
+    ctx.strokeStyle = `rgba(252, 211, 77, ${0.85 * flash})`;
+    ctx.beginPath();
+    ctx.arc(CX, CY, RADIUS - 28, target.angle - target.halfWidth, target.angle + target.halfWidth);
+    ctx.stroke();
+  }
+
+  // pin (line + tip)
+  if (alive) {
+    ctx.save();
+    ctx.translate(CX, CY);
+    ctx.rotate(pinAngle);
+    ctx.fillStyle = sk.accent;
+    ctx.fillRect(0, -3, RADIUS - 18, 6);
+    ctx.beginPath();
+    ctx.arc(RADIUS - 24, 0, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.4)";
+    ctx.beginPath();
+    ctx.arc(RADIUS - 26, -2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // hub
+  ctx.fillStyle = sk.body;
+  ctx.beginPath(); ctx.arc(CX, CY, 22, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.15)";
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(CX, CY, 22, 0, Math.PI * 2); ctx.stroke();
+
+  if (opening) {
+    ctx.fillStyle = `rgba(52, 211, 153, ${0.18 + Math.sin(openingT * 14) * 0.1})`;
+    ctx.beginPath(); ctx.arc(CX, CY, RADIUS + 24, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function attempt() {
+  if (!alive || opening) return;
+  if (level == null) return;
+  const diff = Math.abs(angDiff(pinAngle, target.angle));
+  if (diff <= target.halfWidth) {
+    pinIndex++;
+    saved.currentStreak = (saved.currentStreak || 0) + 1;
+    if (saved.currentStreak > (saved.bestStreak || 0)) saved.bestStreak = saved.currentStreak;
+    streakEl.textContent = saved.currentStreak;
+    shake = 1; shakeT = 0.18;
+    renderPins();
+    GG.save(SLUG, saved);
+    if (pinIndex >= pinsTotal) {
+      opening = true; openingT = 0;
+      msgEl.textContent = `Lock ${level} opened!`;
+    } else {
+      randomizeTarget();
+      // bigger speed kick between pins
+      pinSpeed *= 1.18;
+      // 50% chance to reverse direction after each successful pin
+      if (Math.random() < 0.5) dir = -dir;
+    }
+  } else {
+    const nearMiss = diff <= target.halfWidth + 5 * Math.PI / 180;
+    saved.currentStreak = 0;
+    streakEl.textContent = 0;
+    msgEl.textContent = nearMiss ? "Almost! Restarting this lock." : "Missed. Restarting this lock.";
+    GG.save(SLUG, saved);
+    setTimeout(newLock, 500);
+    alive = false;
+  }
+}
+
+cv.addEventListener("mousedown", attempt);
+cv.addEventListener("touchstart", (e) => { e.preventDefault(); attempt(); });
+window.addEventListener("keydown", (e) => {
+  if (e.key === " " || e.code === "Space") { e.preventDefault(); attempt(); }
+});
+document.getElementById("play").addEventListener("click", () => {
+  newLock();
+});
+
+bestEl.textContent = saved.bestLevel || 1;
+streakEl.textContent = saved.currentStreak || 0;
+newLock();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

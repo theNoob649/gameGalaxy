@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flap!</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="play">Tap to play</button>
+  </div>
+  <canvas id="cv" width="400" height="560"></canvas>
+  <div class="game-message" id="msg">Click / spacebar to flap.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "flap";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+let bird, pipes, score, frames, alive, started;
+let saved = GG.load(SLUG, { best: 0 }) || { best: 0 };
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+bestEl.textContent = saved.best;
+
+const G = 0.28;
+const FLAP = -6.2;
+const MAX_FALL = 8;
+const PIPE_GAP = 180;
+const PIPE_W = 60;
+const SPEED = 1.8;
+const PIPE_EVERY = 110;
+
+function reset() {
+  bird = { x: 90, y: H / 2, vy: 0, r: 14 };
+  pipes = [];
+  score = 0; frames = 0; alive = true; started = false;
+  scoreEl.textContent = 0;
+  msgEl.textContent = "Click / spacebar to flap.";
+}
+
+function spawnPipe() {
+  const margin = 60;
+  const top = margin + Math.random() * (H - 2 * margin - PIPE_GAP);
+  pipes.push({ x: W + 10, top, passed: false });
+}
+
+function flap() {
+  if (!alive) return;
+  started = true;
+  bird.vy = FLAP;
+}
+
+function tick() {
+  if (!alive) return;
+  frames++;
+  if (started) {
+    bird.vy = Math.min(bird.vy + G, MAX_FALL);
+    bird.y += bird.vy;
+    if (frames % PIPE_EVERY === 0) spawnPipe();
+    pipes.forEach((p) => p.x -= SPEED);
+    pipes = pipes.filter((p) => p.x + PIPE_W > 0);
+    if (bird.y + bird.r > H || bird.y - bird.r < 0) return die();
+    for (const p of pipes) {
+      if (bird.x + bird.r > p.x && bird.x - bird.r < p.x + PIPE_W) {
+        if (bird.y - bird.r < p.top || bird.y + bird.r > p.top + PIPE_GAP) return die();
+      }
+      if (!p.passed && p.x + PIPE_W < bird.x) {
+        p.passed = true;
+        score++;
+        scoreEl.textContent = score;
+      }
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function draw() {
+  // sky
+  const grd = ctx.createLinearGradient(0, 0, 0, H);
+  grd.addColorStop(0, "#1a1f4a");
+  grd.addColorStop(1, "#3b1d5a");
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+
+  // pipes
+  ctx.fillStyle = "#34d399";
+  for (const p of pipes) {
+    ctx.fillRect(p.x, 0, PIPE_W, p.top);
+    ctx.fillRect(p.x, p.top + PIPE_GAP, PIPE_W, H - (p.top + PIPE_GAP));
+  }
+
+  // bird
+  ctx.fillStyle = "#fcd34d";
+  ctx.beginPath();
+  ctx.arc(bird.x, bird.y, bird.r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#0a0e1f";
+  ctx.beginPath();
+  ctx.arc(bird.x + 5, bird.y - 3, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#fb7185";
+  ctx.beginPath();
+  ctx.moveTo(bird.x + 8, bird.y);
+  ctx.lineTo(bird.x + 18, bird.y - 2);
+  ctx.lineTo(bird.x + 18, bird.y + 4);
+  ctx.fill();
+}
+
+function die() {
+  alive = false;
+  if (score > saved.best) {
+    saved.best = score;
+    GG.save(SLUG, saved);
+    bestEl.textContent = score;
+    msgEl.textContent = `Crash! New best: ${score}.`;
+  } else {
+    msgEl.textContent = `Crash! Score: ${score}.`;
+  }
+  draw();
+}
+
+cv.addEventListener("mousedown", flap);
+cv.addEventListener("touchstart", (e) => { e.preventDefault(); flap(); });
+window.addEventListener("keydown", (e) => {
+  if (e.key === " " || e.code === "Space") { e.preventDefault(); flap(); }
+});
+document.getElementById("play").addEventListener("click", () => {
+  reset();
+  requestAnimationFrame(tick);
+});
+
+reset();
+draw();
+</script>
+</body>
+</html>

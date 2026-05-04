@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tic Tac Toe</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .ttt-board {
+    display: grid;
+    grid-template-columns: repeat(3, 96px);
+    grid-template-rows: repeat(3, 96px);
+    gap: 6px;
+    background: var(--border);
+    padding: 6px;
+    border-radius: 14px;
+  }
+  .ttt-cell {
+    background: var(--panel);
+    display: grid; place-items: center;
+    font-size: 56px; font-weight: 800;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.15s ease;
+  }
+  .ttt-cell:hover { background: var(--panel-2); }
+  .ttt-cell.x { color: #7c5cff; }
+  .ttt-cell.o { color: #ff6b9d; }
+  .ttt-cell.win { background: rgba(52, 211, 153, 0.18); }
+  .ttt-modes { display: flex; gap: 6px; }
+  .ttt-modes button.active { border-color: var(--accent); }
+  .ttt-record { display: flex; gap: 16px; font-size: 14px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <div class="ttt-modes">
+      <button class="game-btn" data-mode="ai-easy">Easy</button>
+      <button class="game-btn" data-mode="ai-medium">Medium</button>
+      <button class="game-btn" data-mode="ai-hard">Hard</button>
+      <button class="game-btn" data-mode="friend">2 Player</button>
+    </div>
+    <span id="turn">X to move</span>
+    <button class="game-btn primary" id="reset">New round</button>
+  </div>
+  <div id="board" class="ttt-board"></div>
+  <div class="ttt-record">
+    <span>Wins <strong id="wins">0</strong></span>
+    <span>Losses <strong id="losses">0</strong></span>
+    <span>Ties <strong id="ties">0</strong></span>
+  </div>
+  <div class="game-message" id="msg">Click a square to start.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "tic-tac-toe";
+const LINES = [
+  [0,1,2],[3,4,5],[6,7,8],
+  [0,3,6],[1,4,7],[2,5,8],
+  [0,4,8],[2,4,6]
+];
+
+let mode = "ai-medium";
+let board = Array(9).fill("");
+let turn = "X";
+let over = false;
+const persisted = GG.load(SLUG, null) || {};
+let stats = persisted.stats || persisted;
+if (!stats || typeof stats.wins !== "number") stats = {};
+function statsForMode(m) {
+  if (!stats[m]) stats[m] = { wins: 0, losses: 0, ties: 0 };
+  return stats[m];
+}
+function isAi() { return mode.startsWith("ai-"); }
+
+const boardEl = document.getElementById("board");
+const turnEl = document.getElementById("turn");
+const msgEl = document.getElementById("msg");
+
+function render() {
+  boardEl.innerHTML = "";
+  for (let i = 0; i < 9; i++) {
+    const c = document.createElement("div");
+    c.className = "ttt-cell";
+    if (board[i]) c.classList.add(board[i].toLowerCase());
+    c.textContent = board[i];
+    c.addEventListener("click", () => onClick(i));
+    boardEl.appendChild(c);
+  }
+  const s = isAi() ? statsForMode(mode) : { wins: 0, losses: 0, ties: 0 };
+  document.getElementById("wins").textContent = s.wins;
+  document.getElementById("losses").textContent = s.losses;
+  document.getElementById("ties").textContent = s.ties;
+  turnEl.textContent = over ? "" : `${turn} to move`;
+}
+
+function highlightWin(line) {
+  const cells = boardEl.children;
+  line.forEach((i) => cells[i].classList.add("win"));
+}
+
+function checkWin(b) {
+  for (const ln of LINES) {
+    const [a, b1, c] = ln;
+    if (b[a] && b[a] === b[b1] && b[a] === b[c]) return { winner: b[a], line: ln };
+  }
+  if (b.every((x) => x)) return { winner: "tie" };
+  return null;
+}
+
+function onClick(i) {
+  if (over || board[i]) return;
+  if (isAi() && turn !== "X") return;
+  board[i] = turn;
+  const res = checkWin(board);
+  if (res) return finish(res);
+  turn = turn === "X" ? "O" : "X";
+  render();
+  if (isAi() && !over) setTimeout(aiMove, 250);
+}
+
+function emptyCells(b) {
+  const out = [];
+  for (let i = 0; i < 9; i++) if (!b[i]) out.push(i);
+  return out;
+}
+
+function findWinningMove(b, player) {
+  for (const i of emptyCells(b)) {
+    b[i] = player;
+    const r = checkWin(b);
+    b[i] = "";
+    if (r && r.winner === player) return i;
+  }
+  return -1;
+}
+
+function chooseEasy() {
+  const empties = emptyCells(board);
+  return empties[Math.floor(Math.random() * empties.length)];
+}
+
+function chooseMedium() {
+  // Take a win if available; block the opponent's win; otherwise random.
+  const win = findWinningMove(board, "O");
+  if (win >= 0) return win;
+  const block = findWinningMove(board, "X");
+  if (block >= 0) return block;
+  return chooseEasy();
+}
+
+function chooseHard() {
+  return minimax(board, "O").idx;
+}
+
+function aiMove() {
+  let idx;
+  if (mode === "ai-easy") idx = chooseEasy();
+  else if (mode === "ai-medium") idx = chooseMedium();
+  else idx = chooseHard();
+  board[idx] = "O";
+  const res = checkWin(board);
+  if (res) return finish(res);
+  turn = "X";
+  render();
+}
+
+function minimax(b, player) {
+  const res = checkWin(b);
+  if (res) {
+    if (res.winner === "O") return { score: 1 };
+    if (res.winner === "X") return { score: -1 };
+    return { score: 0 };
+  }
+  let best = player === "O" ? { score: -Infinity } : { score: Infinity };
+  for (let i = 0; i < 9; i++) {
+    if (b[i]) continue;
+    b[i] = player;
+    const child = minimax(b, player === "O" ? "X" : "O");
+    b[i] = "";
+    if (player === "O" ? child.score > best.score : child.score < best.score) {
+      best = { score: child.score, idx: i };
+    }
+  }
+  return best;
+}
+
+function finish(res) {
+  over = true;
+  if (res.winner === "tie") {
+    if (isAi()) statsForMode(mode).ties++;
+    msgEl.textContent = "It's a tie.";
+  } else if (res.line) {
+    highlightWin(res.line);
+    if (isAi()) {
+      const s = statsForMode(mode);
+      if (res.winner === "X") { s.wins++; msgEl.textContent = "You win!"; }
+      else { s.losses++; msgEl.textContent = "Computer wins."; }
+    } else {
+      msgEl.textContent = `${res.winner} wins!`;
+    }
+  }
+  GG.save(SLUG, { stats });
+  render();
+}
+
+function newRound() {
+  board = Array(9).fill("");
+  turn = "X";
+  over = false;
+  msgEl.textContent = "Click a square to start.";
+  render();
+}
+
+document.querySelectorAll(".ttt-modes button").forEach((b) => {
+  b.addEventListener("click", () => {
+    mode = b.dataset.mode;
+    document.querySelectorAll(".ttt-modes button").forEach((x) =>
+      x.classList.toggle("active", x === b)
+    );
+    newRound();
+  });
+});
+document.querySelector(`.ttt-modes button[data-mode='${mode}']`).classList.add("active");
+document.getElementById("reset").addEventListener("click", newRound);
+
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Game Galaxy{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Pick a game. Play instantly.</h1>
+  <p>No downloads. Your progress saves automatically. Sign in to keep saves across devices.</p>
+</section>
+
+<section class="catalog">
+  {% for game in games %}
+    <a class="game-card" href="{{ url_for('play', slug=game.slug) }}" style="--accent: {{ game.color }}">
+      <div class="game-card-art" aria-hidden="true">
+        <span class="game-card-letter">{{ game.title[0] }}</span>
+      </div>
+      <div class="game-card-body">
+        <span class="game-card-cat">{{ game.category }}</span>
+        <h2 class="game-card-title">{{ game.title }}</h2>
+        <p class="game-card-blurb">{{ game.blurb }}</p>
+      </div>
+    </a>
+  {% endfor %}
+</section>
+{% endblock %}

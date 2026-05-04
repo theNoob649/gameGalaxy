@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ game.title }} — Game Galaxy{% endblock %}
+{% block content %}
+<section class="game-page" style="--accent: {{ game.color }}">
+  <div class="game-page-head">
+    <a href="{{ url_for('home') }}" class="back-link">&larr; All games</a>
+    <h1>{{ game.title }}</h1>
+    <p class="game-page-blurb">{{ game.blurb }}</p>
+  </div>
+  <div class="game-frame-wrap">
+    <iframe
+      class="game-frame"
+      src="{{ url_for('static', filename='games/' ~ game.slug ~ '/index.html') }}"
+      title="{{ game.title }}"
+      loading="lazy"
+      allow="fullscreen"
+    ></iframe>
+  </div>
+</section>
+{% endblock %}

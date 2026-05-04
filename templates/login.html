@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Sign in — Game Galaxy{% endblock %}
+{% block content %}
+<section class="auth-card">
+  <h1>Sign in</h1>
+  <form method="post" class="auth-form">
+    <label>
+      <span>Username</span>
+      <input type="text" name="username" value="{{ username }}" autocomplete="username" required autofocus>
+    </label>
+    <label>
+      <span>Password</span>
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+  </form>
+  <p class="auth-foot">
+    No account? <a href="{{ url_for('signup') }}">Sign up</a> &middot;
+    <a href="{{ url_for('forgot') }}">Forgot password?</a>
+  </p>
+</section>
+{% endblock %}
