@@ -291,6 +291,20 @@ function renderUpgradePanel() {
 }
 
 // --- input ---
+let hoverCell = null;  // {r, c} or null — used to preview the tower being placed
+function cellFromEvent(e) {
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * cv.width / rect.width;
+  const my = (e.clientY - rect.top) * cv.height / rect.height;
+  return { r: Math.floor(my / CELL), c: Math.floor(mx / CELL) };
+}
+cv.addEventListener("mousemove", (e) => {
+  const { r, c } = cellFromEvent(e);
+  if (r < 0 || r >= map.rows || c < 0 || c >= map.cols) { hoverCell = null; return; }
+  hoverCell = { r, c };
+});
+cv.addEventListener("mouseleave", () => { hoverCell = null; });
+
 cv.addEventListener("click", (e) => {
   const rect = cv.getBoundingClientRect();
   const mx = (e.clientX - rect.left) * cv.width / rect.width;
@@ -580,6 +594,40 @@ function draw() {
         ctx.fillStyle = "rgba(124,92,255,0.12)";
         ctx.fillRect(c * CELL + 2, r * CELL + 2, CELL - 4, CELL - 4);
       }
+    }
+    // ghost preview of the tower being placed at the hovered cell
+    if (hoverCell) {
+      const t = TOWERS[selectedToBuy];
+      const stats = t.levels[0];
+      const x = hoverCell.c * CELL + CELL / 2;
+      const y = hoverCell.r * CELL + CELL / 2;
+      const ok = buildable[hoverCell.r][hoverCell.c] && money >= t.cost;
+      // range circle
+      ctx.save();
+      ctx.fillStyle = ok ? "rgba(124,92,255,0.12)" : "rgba(248,113,113,0.12)";
+      ctx.strokeStyle = ok ? "rgba(124,92,255,0.55)" : "rgba(248,113,113,0.7)";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.arc(x, y, stats.range, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.setLineDash([]);
+      // ghost tower body
+      ctx.globalAlpha = ok ? 0.7 : 0.4;
+      ctx.fillStyle = t.color;
+      ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillRect(x - 2, y - 16, 4, 12); // barrel
+      ctx.globalAlpha = 1;
+      // red X if blocked
+      if (!ok) {
+        ctx.strokeStyle = "rgba(248,113,113,0.9)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x - 12, y - 12); ctx.lineTo(x + 12, y + 12);
+        ctx.moveTo(x + 12, y - 12); ctx.lineTo(x - 12, y + 12);
+        ctx.stroke();
+      }
+      ctx.restore();
     }
   }
   // towers
