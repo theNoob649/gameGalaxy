@@ -2,14 +2,42 @@
 
 Serves the game catalog and the static game assets. All saves live in the
 visitor's browser via localStorage; there is no database and no accounts.
+
+Tracks per-game play counts in a small JSON file (play_counts.json) so the
+sort_by_popularity.py tool can rank the catalog by usage. The counter file
+is gitignored — on Render's free tier it survives until the instance idles
+and restarts, which is fine for hobby-scale popularity ranking.
 """
 
+import json
 import os
+import threading
 
-from flask import Flask, abort, render_template
+from flask import Flask, abort, jsonify, render_template
 
 
 app = Flask(__name__)
+
+_PLAY_COUNTS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "play_counts.json")
+_play_counts_lock = threading.Lock()
+
+
+def _load_play_counts():
+    try:
+        with open(_PLAY_COUNTS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return {k: int(v) for k, v in data.items() if isinstance(v, (int, float))}
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        pass
+    return {}
+
+
+def _save_play_counts(counts):
+    tmp = _PLAY_COUNTS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(counts, f, indent=2, sort_keys=True)
+    os.replace(tmp, _PLAY_COUNTS_PATH)
 
 
 GAMES = [
@@ -210,7 +238,6 @@ GAMES = [
         "color": "#0f766e",
     },
 ]
-
 GAMES_BY_SLUG = {g["slug"]: g for g in GAMES}
 
 
@@ -243,6 +270,24 @@ def play(slug):
     if not game:
         abort(404)
     return render_template("game.html", game=game)
+
+
+@app.route("/api/played/<slug>", methods=["POST"])
+def played(slug):
+    """Bump the play count for a slug. Called once per play-page load."""
+    if slug not in GAMES_BY_SLUG:
+        abort(404)
+    with _play_counts_lock:
+        counts = _load_play_counts()
+        counts[slug] = counts.get(slug, 0) + 1
+        _save_play_counts(counts)
+    return ("", 204)
+
+
+@app.route("/api/stats")
+def stats():
+    """Return current per-slug play counts as JSON. Used by the sort tool."""
+    return jsonify(_load_play_counts())
 
 
 if __name__ == "__main__":
