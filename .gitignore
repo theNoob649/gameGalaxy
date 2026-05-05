@@ -4,10 +4,6 @@ game_galaxy.db
 *.db-wal
 *.db-shm
 
-# Live play-count tally — accumulates server-side; sort_by_popularity.py
-# reads it but it shouldn't be in version control.
-play_counts.json
-
 # Logs
 *.log
 

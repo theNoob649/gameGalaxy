@@ -50,10 +50,6 @@
       label.textContent = fs ? "Exit fullscreen" : "Fullscreen";
     });
   });
-
-  // Bump the play counter once per page load. Best-effort, fire-and-forget.
-  fetch("/api/played/{{ game.slug }}", { method: "POST", credentials: "same-origin" })
-    .catch(() => {});
 })();
 </script>
 {% endblock %}
