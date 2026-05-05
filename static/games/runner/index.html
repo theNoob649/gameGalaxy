@@ -66,14 +66,22 @@ function tick() {
     speed = Math.min(7.5, 3.2 + dist / 1600);
     dist += speed / 8;
     distEl.textContent = Math.floor(dist);
-    if (frames % 95 === 0 || (frames > 90 && Math.random() < 0.008 * (speed / 3.2))) {
-      const tall = Math.random() < 0.35;
-      obstacles.push({
-        x: W + 20,
-        y: GROUND - (tall ? 50 : 30),
-        w: tall ? 22 : 30,
-        h: tall ? 50 : 30,
-      });
+    // Spawn at most one obstacle per cadence, AND only if there's enough gap
+    // from the previous obstacle that the player can land + jump again.
+    // Jump airtime is ~44 frames; at speed S the runner covers S*44 px in one
+    // jump, so the minimum survivable gap is jump distance + a safety margin.
+    if (frames % 70 === 0) {
+      const lastX = obstacles.length ? obstacles[obstacles.length - 1].x : -Infinity;
+      const minGap = speed * 44 + 80;
+      if ((W + 20) - lastX >= minGap) {
+        const tall = Math.random() < 0.35;
+        obstacles.push({
+          x: W + 20,
+          y: GROUND - (tall ? 50 : 30),
+          w: tall ? 22 : 30,
+          h: tall ? 50 : 30,
+        });
+      }
     }
     if (frames % 140 === 0) {
       coins.push({ x: W + 20, y: GROUND - 60 - Math.random() * 90, r: 8 });
