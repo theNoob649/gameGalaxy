@@ -148,15 +148,18 @@ function die() {
   const finalDist = Math.floor(dist);
   const score = finalDist + coinsCount * 10;
   const prev = saved.best || 0;
+  let newBest = false;
   if (score > prev) {
     saved.best = score;
     GG.save(SLUG, saved);
     bestEl.textContent = score;
     msgEl.textContent = `Crashed! New best: ${score} (distance ${finalDist}, coins ${coinsCount}).`;
+    newBest = true;
   } else {
     msgEl.textContent = `Crashed! Score: ${score}.`;
   }
   draw();
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Distance ${finalDist}, ${coinsCount} coins.${newBest ? " New best!" : ""}`);
 }
 
 cv.addEventListener("mousedown", jump);

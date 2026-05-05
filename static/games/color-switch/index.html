@@ -408,6 +408,7 @@ function die(reason) {
   msgEl.textContent = `${reason} Score ${score}.`;
   GG.save(SLUG, saved);
   draw();
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `${reason} Score ${score}.`);
 }
 
 // shop

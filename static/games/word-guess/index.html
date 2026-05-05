@@ -215,10 +215,12 @@ function submit(guess) {
       : 1;
     state.lastWonDay = TODAY;
     msgEl.textContent = `Got it in ${state.guesses.length}!`;
+    if (window.GG && GG.youWin) GG.youWin("You Win!", `Got "${ANSWER.toUpperCase()}" in ${state.guesses.length}/${ROWS}. Streak: ${state.streak}.`);
   } else if (state.guesses.length >= ROWS) {
     state.done = true; state.played++;
     state.streak = 0;
     msgEl.textContent = `Out of guesses. Word was "${ANSWER.toUpperCase()}".`;
+    if (window.GG && GG.youLose) GG.youLose("You Lose", `The word was "${ANSWER.toUpperCase()}". Come back tomorrow.`);
   }
   persist();
 }

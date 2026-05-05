@@ -263,8 +263,11 @@ function move(direction) {
     busy = false;
     if (!hasMoves()) {
       msgEl.textContent = `Game over. Score ${score}. Best ${best}.`;
-    } else if (tiles.some((t) => t.value === 2048)) {
+      if (window.GG && GG.youLose) GG.youLose("Game Over", `No moves left. Score ${score}.`);
+    } else if (tiles.some((t) => t.value === 2048) && !persisted._wonShown) {
       msgEl.textContent = `You hit 2048! Keep going.`;
+      persisted._wonShown = true;
+      if (window.GG && GG.youWin) GG.youWin("You Win!", "You hit 2048! Keep going for a higher score.");
     }
   }, ANIM_MS);
 }

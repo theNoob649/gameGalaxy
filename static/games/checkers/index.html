@@ -237,6 +237,7 @@ function checkEnd() {
     GG.save(SLUG, saved);
     msgEl.textContent = `Player ${winner} wins!`;
     p1El.textContent = saved.p1Wins; p2El.textContent = saved.p2Wins;
+    if (window.GG && GG.youWin) GG.youWin("You Win!", `Player ${winner} wins.`);
   }
 }
 

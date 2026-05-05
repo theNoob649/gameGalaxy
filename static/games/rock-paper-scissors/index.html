@@ -121,6 +121,7 @@ function endMatch() {
   GG.save(SLUG, saved);
   msgEl.textContent = `P${winner} wins the match ${p1}-${p2}.`;
   playBtn.textContent = "Play again";
+  if (window.GG && GG.youWin) GG.youWin("You Win!", `Player ${winner} wins ${p1}-${p2}.`);
 }
 
 window.addEventListener("keydown", (e) => {

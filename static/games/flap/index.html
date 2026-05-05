@@ -116,15 +116,18 @@ function draw() {
 
 function die() {
   alive = false;
+  let newBest = false;
   if (score > saved.best) {
     saved.best = score;
     GG.save(SLUG, saved);
     bestEl.textContent = score;
     msgEl.textContent = `Crash! New best: ${score}.`;
+    newBest = true;
   } else {
     msgEl.textContent = `Crash! Score: ${score}.`;
   }
   draw();
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Score ${score}.${newBest ? " New best!" : ""}`);
 }
 
 cv.addEventListener("mousedown", flap);

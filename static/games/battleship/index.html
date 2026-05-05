@@ -309,6 +309,7 @@ function fireAt(r, c) {
     GG.save(SLUG, saved);
     msgEl.textContent = `Player ${me} wins! ${resultMsg}`;
     render();
+    if (window.GG && GG.youWin) GG.youWin("You Win!", `Player ${me} sunk every enemy ship.`);
     return;
   }
   msgEl.textContent = resultMsg;

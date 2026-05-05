@@ -276,13 +276,16 @@ function onPlace(r, c) {
   // game over check
   if (gridReachesBottom()) {
     alive = false;
+    let newBest = false;
     if (score > (saved.bestEndlessScore || 0)) {
       saved.bestEndlessScore = score; GG.save(SLUG, saved);
       bestEl.textContent = score;
       msgEl.textContent = `Game over. New best ${score}!`;
+      newBest = true;
     } else {
       msgEl.textContent = `Game over. Score ${score}.`;
     }
+    if (window.GG && GG.youLose) GG.youLose("You Lose", `Score ${score}.${newBest ? " New best!" : ""}`);
   } else if (gridEmpty()) {
     score += 200;
     scoreEl.textContent = score;

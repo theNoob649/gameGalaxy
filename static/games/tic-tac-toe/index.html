@@ -195,8 +195,13 @@ function finish(res) {
     highlightWin(res.line);
     if (isAi()) {
       const s = statsForMode(mode);
-      if (res.winner === "X") { s.wins++; msgEl.textContent = "You win!"; }
-      else { s.losses++; msgEl.textContent = "Computer wins."; }
+      if (res.winner === "X") {
+        s.wins++; msgEl.textContent = "You win!";
+        if (window.GG && GG.youWin) GG.youWin("You Win!", `Beat ${mode.replace("ai-","")} mode.`);
+      } else {
+        s.losses++; msgEl.textContent = "Computer wins.";
+        if (window.GG && GG.youLose) GG.youLose("You Lose", `Computer wins on ${mode.replace("ai-","")}.`);
+      }
     } else {
       msgEl.textContent = `${res.winner} wins!`;
     }

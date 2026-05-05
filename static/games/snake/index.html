@@ -69,14 +69,17 @@ function step() {
 
 function die() {
   alive = false;
+  let newBest = false;
   if (score > saved.best) {
     saved.best = score;
     GG.save(SLUG, saved);
     bestEl.textContent = score;
     msgEl.textContent = `Game over. New best: ${score}!`;
+    newBest = true;
   } else {
     msgEl.textContent = `Game over. Score: ${score}.`;
   }
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Score ${score}.${newBest ? " New best!" : ""}`);
 }
 
 function draw() {

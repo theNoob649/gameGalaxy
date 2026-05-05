@@ -107,6 +107,7 @@ function endMatch() {
   const best = saved.bestRT != null ? ` Best RT ${saved.bestRT} ms.` : "";
   msgEl.textContent = `P${winner} wins the match ${p1}-${p2}.${best}`;
   playBtn.textContent = "Play again";
+  if (window.GG && GG.youWin) GG.youWin("You Win!", `Player ${winner} wins ${p1}-${p2}.${best}`);
 }
 
 window.addEventListener("keydown", (e) => {

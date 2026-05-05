@@ -156,13 +156,16 @@ function onWin() {
   const key = String(size);
   const prev = bestTimes[key];
   let line = `Solved in ${moves} moves and ${elapsed.toFixed(1)}s.`;
+  let newBest = false;
   if (prev == null || elapsed < prev) {
     bestTimes[key] = elapsed;
     GG.save(SLUG, bestTimes);
     line += " New best!";
+    newBest = true;
     updateBest();
   }
   msgEl.textContent = line;
+  GG.youWin("You Win!", `${size}×${size} cleared in ${elapsed.toFixed(1)}s, ${moves} moves.${newBest ? " New best!" : ""}`);
 }
 
 function updateBest() {

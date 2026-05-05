@@ -133,12 +133,13 @@ function tick(ts) {
       for (const t of tanks) {
         if (t.id === b.owner && b.age < FIRE_GRACE) continue;
         if (Math.hypot(b.x - t.x, b.y - t.y) < TANK_R + BULLET_R) {
-          // kill
+          // kill: respawn only the dead tank, leave the other one + the rest
+          // of the battlefield (other bullets) alone. No freeze.
           if (t.id === 1) p2Score++; else p1Score++;
           p1El.textContent = p1Score; p2El.textContent = p2Score;
-          bullets = [];
-          tanks = [spawnTank(1), spawnTank(2)];
-          freezeUntil = performance.now() + 700;
+          bullets = bullets.filter((x) => x !== b);
+          const fresh = spawnTank(t.id);
+          t.x = fresh.x; t.y = fresh.y; t.angle = fresh.angle; t.cooldown = 0.4;
           if (p1Score >= TARGET || p2Score >= TARGET) return endMatch();
           break;
         }
@@ -207,6 +208,7 @@ function endMatch() {
   GG.save(SLUG, saved);
   msgEl.textContent = `P${winner} wins ${p1Score}-${p2Score}.`;
   playBtn.textContent = "Play again";
+  if (window.GG && GG.youWin) GG.youWin("You Win!", `Player ${winner} wins ${p1Score}-${p2Score}.`);
 }
 
 playBtn.addEventListener("click", () => { newMatch(); playBtn.textContent = "Restart"; });

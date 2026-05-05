@@ -60,6 +60,18 @@
   .wm-pop.bad { color: var(--bad); }
   .wm-pop.gold { color: #ffe273; }
   @keyframes wm-pop { to { transform: translate(-50%, -40px); opacity: 0; } }
+  .wm-explosion {
+    position: fixed; inset: 0; pointer-events: none; z-index: 50;
+    background: radial-gradient(circle at center, #fff 0%, #fcd34d 18%, #f97316 38%, #b91c1c 60%, #1a0a05 100%);
+    animation: wm-blast 0.9s ease-out forwards;
+    transform-origin: center;
+  }
+  @keyframes wm-blast {
+    0%   { transform: scale(0); opacity: 1; }
+    35%  { transform: scale(1.1); opacity: 1; }
+    70%  { transform: scale(1.5); opacity: 1; }
+    100% { transform: scale(1.8); opacity: 0; }
+  }
 </style>
 </head>
 <body>
@@ -190,7 +202,14 @@ function onWhack(idx, holeEl) {
   if (h.kind === "bomb") {
     popText(holeEl, "BOOM", "bad");
     h.mole.classList.remove("up"); h.state = "down"; h.kind = "normal";
-    return endRound("You whacked a bomb.");
+    // fullscreen explosion, then game over + popup
+    active = false;
+    if (tickHandle) cancelAnimationFrame(tickHandle);
+    const blast = document.createElement("div");
+    blast.className = "wm-explosion";
+    document.body.appendChild(blast);
+    setTimeout(() => { blast.remove(); endRound("You whacked a bomb."); }, 900);
+    return;
   }
   const points = h.kind === "gold" ? 5 : 1;
   score += points;
@@ -250,6 +269,8 @@ function endRound(reason) {
   GG.save(SLUG, saved);
   bestEl.textContent = bestForMode();
   msgEl.textContent = line;
+  // any end-of-round in whack-a-mole is technically a "loss" (no win condition)
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `${reason} Score ${score}.`);
 }
 
 function bestForMode() {

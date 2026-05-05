@@ -298,6 +298,7 @@ function endRound(reason) {
   GG.save(SLUG, saved);
   bestEl.textContent = saved.bestScore;
   msgEl.textContent = line;
+  if (window.GG && GG.youLose && mode === "endless") GG.youLose("You Lose", `Score ${score}, ${wpm} WPM.`);
 }
 
 document.getElementById("play").addEventListener("click", start);

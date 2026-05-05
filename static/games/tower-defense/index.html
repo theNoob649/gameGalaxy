@@ -43,9 +43,9 @@
     <div class="td-stage"><canvas id="cv" width="640" height="420"></canvas></div>
     <div class="td-side">
       <div class="td-stats">
-        <span>Wave <strong id="wave">0</strong>/20</span>
+        <span>Wave <strong id="wave">0</strong>/30</span>
         <span>$<strong id="money">100</strong></span>
-        <span>Lives <strong id="lives">20</strong></span>
+        <span>Health <strong id="lives">20</strong></span>
         <span>Kills <strong id="kills">0</strong></span>
       </div>
       <button class="game-btn primary" id="nextWave" style="width: 100%; margin-bottom: 8px;">Start wave</button>
@@ -107,18 +107,23 @@ const TOWERS = {
     { dmg: 70, rate: 1.0, range: 160, cost: 320, splash: 60, slow: 0 },
   ]},
   slow:   { name: "Slow",       cost: 60,  desc: "Slows enemies in range. No damage.", color: "#a78bfa", levels: [
-    { dmg: 0,  rate: 0,   range: 110, cost: 60,  splash: 0,  slow: 0.5 },
-    { dmg: 0,  rate: 0,   range: 130, cost: 90,  splash: 0,  slow: 0.65 },
-    { dmg: 0,  rate: 0,   range: 150, cost: 140, splash: 0,  slow: 0.78 },
+    { dmg: 0,  rate: 0,   range: 100, cost: 60,  splash: 0,  slow: 0.25 },
+    { dmg: 0,  rate: 0,   range: 115, cost: 90,  splash: 0,  slow: 0.35 },
+    { dmg: 0,  rate: 0,   range: 130, cost: 140, splash: 0,  slow: 0.5 },
   ]},
 };
 
 const ENEMIES = {
-  grunt: { hp: 30,  speed: 50, gold: 7,  color: "#9aa3c7", radius: 9 },
-  fast:  { hp: 18,  speed: 95, gold: 6,  color: "#34d399", radius: 8 },
-  tank:  { hp: 200, speed: 30, gold: 25, color: "#fb7185", radius: 12 },
-  swarm: { hp: 8,   speed: 70, gold: 2,  color: "#fcd34d", radius: 6 },
-  boss:  { hp: 1500,speed: 25, gold: 200, color: "#7c5cff", radius: 16 },
+  grunt:  { hp: 30,    speed: 50, gold: 7,   color: "#9aa3c7", radius: 9,  shape: "circle" },
+  fast:   { hp: 18,    speed: 95, gold: 6,   color: "#34d399", radius: 8,  shape: "circle" },
+  tank:   { hp: 200,   speed: 30, gold: 25,  color: "#fb7185", radius: 12, shape: "circle" },
+  swarm:  { hp: 8,     speed: 70, gold: 2,   color: "#fcd34d", radius: 6,  shape: "circle" },
+  purple: { hp: 90,    speed: 70, gold: 14,  color: "#a78bfa", radius: 10, shape: "circle" },
+  boss:   { hp: 1500,  speed: 25, gold: 200, color: "#7c5cff", radius: 16, shape: "circle" },
+  // wave-15 mid boss: red ball with huge HP, escorted by grey grunts.
+  redBoss:  { hp: 6000,  speed: 22, gold: 500,  color: "#dc2626", radius: 22, shape: "circle" },
+  // wave-30 final boss: bigger, more HP, wears a crown, escorted by purples.
+  kingBoss: { hp: 25000, speed: 18, gold: 2000, color: "#7c2d12", radius: 28, shape: "crown" },
 };
 
 const cv = document.getElementById("cv");
@@ -195,22 +200,51 @@ function computeBuildable(m) {
   return grid;
 }
 
+// HP/gold scaling per wave so wave 19 isn't as easy as wave 12.
+function waveHpMult(n) { return 1 + (n - 1) * 0.16; }
+function waveGoldMult(n) { return 1 + (n - 1) * 0.05; }
+
 function generateWave(n) {
   // returns list of {kind, gap}
   const out = [];
-  if (n % 5 === 0) {
-    // boss wave
-    out.push({ kind: "boss", gap: 0 });
-    for (let i = 0; i < 6 + n; i++) out.push({ kind: "grunt", gap: 0.6 });
+
+  // Special bosses
+  if (n === 15) {
+    out.push({ kind: "redBoss", gap: 0 });
+    // grey-ball (grunt) minions in close formation
+    for (let i = 0; i < 16; i++) out.push({ kind: "grunt", gap: 0.35 });
     return out;
   }
-  const grunts = 5 + Math.floor(n * 1.4);
-  for (let i = 0; i < grunts; i++) out.push({ kind: "grunt", gap: 0.5 });
-  if (n >= 2) for (let i = 0; i < 4 + n; i++) out.push({ kind: "fast", gap: 0.35 });
-  if (n >= 3) for (let i = 0; i < Math.max(1, n - 1); i++) out.push({ kind: "tank", gap: 0.9 });
-  if (n >= 4) for (let i = 0; i < 14 + n * 2; i++) out.push({ kind: "swarm", gap: 0.18 });
-  // shuffle the chunks lightly
-  out.sort((a, b) => (Math.random() - 0.5));
+  if (n === 30) {
+    out.push({ kind: "kingBoss", gap: 0 });
+    // purple minions for the king
+    for (let i = 0; i < 22; i++) out.push({ kind: "purple", gap: 0.4 });
+    for (let i = 0; i < 10; i++) out.push({ kind: "tank",   gap: 0.7 });
+    return out;
+  }
+  // Standard boss waves at 5, 10, 20, 25
+  if (n % 5 === 0) {
+    out.push({ kind: "boss", gap: 0 });
+    for (let i = 0; i < 6 + n; i++) out.push({ kind: "grunt", gap: 0.6 });
+    if (n >= 16) for (let i = 0; i < 5 + Math.floor(n / 4); i++) out.push({ kind: "purple", gap: 0.55 });
+    return out;
+  }
+
+  // Regular waves — counts ramp faster than before
+  const grunts = 5 + Math.floor(n * 1.8);
+  for (let i = 0; i < grunts; i++) out.push({ kind: "grunt", gap: 0.45 });
+  if (n >= 2) for (let i = 0; i < 4 + Math.floor(n * 1.2); i++) out.push({ kind: "fast", gap: 0.3 });
+  if (n >= 3) for (let i = 0; i < Math.max(1, Math.floor(n / 1.5)); i++) out.push({ kind: "tank", gap: 0.85 });
+  if (n >= 4) for (let i = 0; i < 14 + n * 2; i++) out.push({ kind: "swarm", gap: 0.16 });
+
+  // Purples introduced at wave 11, but become common after wave 16
+  if (n >= 11) {
+    const purples = n >= 17 ? 6 + Math.floor((n - 16) * 1.8) : Math.max(1, n - 10);
+    for (let i = 0; i < purples; i++) out.push({ kind: "purple", gap: 0.5 });
+  }
+
+  // Shuffle for variety
+  out.sort(() => Math.random() - 0.5);
   return out;
 }
 
@@ -412,9 +446,15 @@ function maybeSpawn(dt) {
   }
   const next = pendingSpawns.shift();
   const def = ENEMIES[next.kind];
+  // Bosses scale only modestly with their wave; mooks scale more aggressively
+  const isBoss = next.kind === "boss" || next.kind === "redBoss" || next.kind === "kingBoss";
+  const hpMult = isBoss ? 1 + (wave - 1) * 0.04 : waveHpMult(wave);
+  const goldMult = waveGoldMult(wave);
   enemies.push({
     kind: next.kind, ...def,
-    maxHp: def.hp, hp: def.hp,
+    maxHp: Math.round(def.hp * hpMult),
+    hp:    Math.round(def.hp * hpMult),
+    gold:  Math.round(def.gold * goldMult),
     pathIdx: 0, slowUntil: 0, slowFactor: 1,
   });
   spawnTimer = next.gap || 0.3;
@@ -425,10 +465,11 @@ function onWaveCleared() {
   money += 50 + wave * 10;
   moneyEl.textContent = money;
   msgEl.textContent = `Wave ${wave} cleared! +$${50 + wave * 10}.`;
-  if (wave >= 20) {
+  if (wave >= 30) {
     wonGame = true;
-    msgEl.textContent = `You beat ${mapId.toUpperCase()} in 20 waves!`;
+    msgEl.textContent = `You beat ${mapId.toUpperCase()} in 30 waves!`;
     if (!saved.mapsBeaten.includes(mapId)) saved.mapsBeaten.push(mapId);
+    if (window.GG && GG.youWin) GG.youWin("You Win!", `Cleared ${mapId.toUpperCase()} — 30 waves survived.`);
   }
   saved.bestWaveByMap[mapId] = Math.max(saved.bestWaveByMap[mapId] || 0, wave);
   GG.save(SLUG, saved);
@@ -488,6 +529,14 @@ function fireTowers(dt) {
     if (t.cooldown > 0) continue;
     const target = pickTarget(t);
     if (!target) continue;
+    // per-tower projectile profile
+    const profiles = {
+      basic:  { speed: 460, size: 4,  trail: 0, type: "bolt" },
+      sniper: { speed: 1100, size: 2, trail: 1, type: "laser" },
+      rapid:  { speed: 600, size: 2,  trail: 0, type: "pellet" },
+      cannon: { speed: 280, size: 9,  trail: 0, type: "shell" },
+    };
+    const prof = profiles[t.kind] || profiles.basic;
     bullets.push({
       x: t.x, y: t.y,
       tx: ePos(target).x, ty: ePos(target).y,
@@ -495,7 +544,12 @@ function fireTowers(dt) {
       dmg: t.dmg,
       splash: t.splash,
       color: TOWERS[t.kind].color,
-      speed: 360,
+      speed: prof.speed,
+      size: prof.size,
+      trail: prof.trail,
+      type: prof.type,
+      origin: { x: t.x, y: t.y },
+      tail: [],   // recent positions for trails
     });
     t.cooldown = 1 / Math.max(0.01, t.rate);
   }
@@ -538,6 +592,11 @@ function moveBullets(dt) {
     } else {
       b.x += dx / d * step;
       b.y += dy / d * step;
+      if (b.tail) {
+        b.tail.push({ x: b.x, y: b.y });
+        const max = b.type === "shell" ? 8 : b.type === "laser" ? 12 : 5;
+        if (b.tail.length > max) b.tail.shift();
+      }
     }
   }
 }
@@ -560,6 +619,7 @@ function gameOver() {
   inWave = false;
   msgEl.textContent = `Game over on wave ${wave}.`;
   GG.save(SLUG, saved);
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Defeated on wave ${wave} of ${mapId.toUpperCase()}.`);
 }
 
 // --- drawing ---
@@ -632,9 +692,18 @@ function draw() {
   }
   // towers
   for (const t of towers) {
+    const baseR = 14 + t.level * 2;
     ctx.fillStyle = TOWERS[t.kind].color;
-    ctx.beginPath(); ctx.arc(t.x, t.y, 14 + t.level * 2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
+    ctx.beginPath(); ctx.arc(t.x, t.y, baseR, 0, Math.PI * 2); ctx.fill();
+    // upgrade stripes — 1 ring at lvl 0, 2 at lvl 1, 3 at lvl 2 (= max)
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    for (let i = 0; i <= t.level; i++) {
+      const r = baseR + 4 + i * 4;
+      ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, Math.PI * 2); ctx.stroke();
+    }
+    // barrel
+    ctx.fillStyle = "rgba(0,0,0,0.5)";
     ctx.fillRect(t.x - 2, t.y - 16 - t.level * 2, 4, 12 + t.level * 2);
   }
   // selected range
@@ -646,20 +715,131 @@ function draw() {
   // enemies
   for (const e of enemies) {
     const p = ePos(e);
-    ctx.fillStyle = e.color;
-    ctx.beginPath(); ctx.arc(p.x, p.y, e.radius, 0, Math.PI * 2); ctx.fill();
-    // hp bar
-    const w = e.radius * 2;
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(p.x - w / 2, p.y - e.radius - 6, w, 3);
-    ctx.fillStyle = "#34d399";
-    ctx.fillRect(p.x - w / 2, p.y - e.radius - 6, w * Math.max(0, e.hp / e.maxHp), 3);
+    drawEnemy(p.x, p.y, e);
   }
   // bullets
-  for (const b of bullets) {
-    ctx.fillStyle = b.color;
-    ctx.beginPath(); ctx.arc(b.x, b.y, 3, 0, Math.PI * 2); ctx.fill();
+  for (const b of bullets) drawBullet(b);
+}
+
+function drawEnemy(x, y, e) {
+  const r = e.radius;
+  ctx.save();
+  // body
+  if (e.kind === "kingBoss") {
+    // dark purple body with glowing rim
+    const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 2, x, y, r);
+    g.addColorStop(0, "#a855f7");
+    g.addColorStop(1, e.color);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    // crown on top
+    ctx.fillStyle = "#fcd34d";
+    const cx = x, cy = y - r - 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.7, cy + 6);
+    ctx.lineTo(cx - r * 0.7, cy - 4);
+    ctx.lineTo(cx - r * 0.35, cy);
+    ctx.lineTo(cx, cy - 8);
+    ctx.lineTo(cx + r * 0.35, cy);
+    ctx.lineTo(cx + r * 0.7, cy - 4);
+    ctx.lineTo(cx + r * 0.7, cy + 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#dc2626";
+    ctx.beginPath(); ctx.arc(cx, cy - 6, 2.5, 0, Math.PI * 2); ctx.fill();
+  } else if (e.kind === "redBoss") {
+    const g = ctx.createRadialGradient(x - r * 0.4, y - r * 0.4, 2, x, y, r);
+    g.addColorStop(0, "#fca5a5");
+    g.addColorStop(1, "#7f1d1d");
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    // angry eyes
+    ctx.fillStyle = "#1a0808";
+    ctx.fillRect(x - 7, y - 2, 5, 3);
+    ctx.fillRect(x + 2, y - 2, 5, 3);
+  } else if (e.kind === "boss") {
+    const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 2, x, y, r);
+    g.addColorStop(0, "#c4b5fd");
+    g.addColorStop(1, e.color);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  } else if (e.kind === "purple") {
+    ctx.fillStyle = e.color;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    // diamond marking
+    ctx.strokeStyle = "rgba(255,255,255,0.7)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y - r * 0.6);
+    ctx.lineTo(x + r * 0.6, y);
+    ctx.lineTo(x, y + r * 0.6);
+    ctx.lineTo(x - r * 0.6, y);
+    ctx.closePath();
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = e.color;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
   }
+  ctx.restore();
+  // hp bar
+  const w = r * 2;
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(x - w / 2, y - r - 6, w, 3);
+  ctx.fillStyle = e.hp / e.maxHp > 0.5 ? "#34d399" : e.hp / e.maxHp > 0.25 ? "#fcd34d" : "#f87171";
+  ctx.fillRect(x - w / 2, y - r - 6, w * Math.max(0, e.hp / e.maxHp), 3);
+}
+
+function drawBullet(b) {
+  ctx.save();
+  if (b.type === "laser") {
+    // bright thin streak from origin to current position
+    const grd = ctx.createLinearGradient(b.origin.x, b.origin.y, b.x, b.y);
+    grd.addColorStop(0, "rgba(248,113,113,0)");
+    grd.addColorStop(1, b.color);
+    ctx.strokeStyle = grd;
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(b.origin.x, b.origin.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    // glowing tip
+    ctx.fillStyle = "white";
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = 10;
+    ctx.beginPath(); ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2); ctx.fill();
+  } else if (b.type === "shell") {
+    // smoke trail
+    if (b.tail) {
+      for (let i = 0; i < b.tail.length; i++) {
+        const p = b.tail[i];
+        const a = (i + 1) / b.tail.length;
+        ctx.fillStyle = `rgba(150, 150, 150, ${0.3 * a})`;
+        ctx.beginPath(); ctx.arc(p.x, p.y, b.size * (0.5 + a * 0.5), 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    // big orange shell
+    const grd = ctx.createRadialGradient(b.x - b.size * 0.3, b.y - b.size * 0.3, 1, b.x, b.y, b.size);
+    grd.addColorStop(0, "#fde68a");
+    grd.addColorStop(1, b.color);
+    ctx.fillStyle = grd;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.stroke();
+  } else if (b.type === "pellet") {
+    // tiny fast pellet, square-ish, no trail
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x - b.size, b.y - b.size, b.size * 2, b.size * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.fillRect(b.x - b.size + 1, b.y - b.size + 1, b.size, b.size);
+  } else {
+    // basic bolt — round, glowing
+    ctx.fillStyle = b.color;
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = 6;
+    ctx.beginPath(); ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
 }
 
 newGame();

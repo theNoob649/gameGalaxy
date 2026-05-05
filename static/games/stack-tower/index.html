@@ -126,14 +126,17 @@ function drop() {
 function die(reason) {
   alive = false;
   const h = stack.length - 1;
+  let newBest = false;
   if (h > (saved.bestHeight || 0)) {
     saved.bestHeight = h;
     bestEl.textContent = h;
     msgEl.textContent = `${reason} New best: ${h}!`;
+    newBest = true;
   } else {
     msgEl.textContent = `${reason} Height: ${h}.`;
   }
   GG.save(SLUG, saved);
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Height ${h}.${newBest ? " New best!" : ""}`);
 }
 
 function tick() {

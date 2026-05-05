@@ -189,20 +189,24 @@ function loss() {
   for (const row of cells) for (const cell of row) if (cell.mine) cell.rev = true;
   msgEl.textContent = "Boom! Click 'New game' to try again.";
   render();
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Hit a mine on ${dif.toUpperCase()}.`);
 }
 
 function win() {
   over = true;
   clearInterval(timerId);
   let line = `Cleared in ${elapsed}s.`;
+  let newBest = false;
   if (bestTimes[dif] == null || elapsed < bestTimes[dif]) {
     bestTimes[dif] = elapsed;
     GG.save(SLUG, bestTimes);
     bestEl.textContent = elapsed + "s";
     line += " New best!";
+    newBest = true;
   }
   msgEl.textContent = line;
   render();
+  GG.youWin("You Win!", `${dif.toUpperCase()} board cleared in ${elapsed}s.${newBest ? " New best!" : ""}`);
 }
 
 document.querySelectorAll(".ms-difs button").forEach((btn) => {

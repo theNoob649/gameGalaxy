@@ -132,6 +132,7 @@ function endMatch() {
   GG.save(SLUG, saved);
   msgEl.textContent = `P${winner} wins ${p1Score}-${p2Score}.`;
   playBtn.textContent = "Play again";
+  if (window.GG && GG.youWin) GG.youWin("You Win!", `Player ${winner} wins ${p1Score}-${p2Score}.`);
 }
 
 playBtn.addEventListener("click", () => { newMatch(); playBtn.textContent = "Restart"; });

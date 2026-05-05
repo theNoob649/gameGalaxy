@@ -106,6 +106,7 @@ function drop(c) {
     GG.save(SLUG, saved);
     msgEl.textContent = `Player ${turn} wins!`;
     p1El.textContent = saved.p1Wins; p2El.textContent = saved.p2Wins;
+    if (window.GG && GG.youWin) GG.youWin("You Win!", `Player ${turn} got four in a row.`);
     return;
   }
   if (board.every((row) => row.every((v) => v))) {
