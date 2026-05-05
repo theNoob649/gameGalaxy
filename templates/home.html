@@ -1,14 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Game Galaxy{% endblock %}
 {% block content %}
-<section class="hero">
-  <h1>Pick a game. Play instantly.</h1>
-  <p>No downloads. Your progress saves automatically on this device.</p>
+<section class="hero hero-row">
+  <div class="hero-text">
+    <h1>Pick a game. Play instantly.</h1>
+    <p>No downloads. Your progress saves automatically on this device.</p>
+  </div>
+  <div class="cat-dropdown" id="catDropdown">
+    <button class="cat-toggle" id="catToggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+      <span class="cat-toggle-label">Category:</span>
+      <span class="cat-toggle-value" id="catCurrent">All</span>
+      <span class="cat-toggle-caret" aria-hidden="true">▾</span>
+    </button>
+    <ul class="cat-menu" id="catMenu" role="listbox" hidden>
+      <li role="option" data-cat="" class="active">All</li>
+      {% for c in categories %}
+        <li role="option" data-cat="{{ c }}">{{ c }}</li>
+      {% endfor %}
+    </ul>
+  </div>
 </section>
 
-<section class="catalog">
+<section class="catalog" id="catalog">
   {% for game in games %}
-    <a class="game-card" href="{{ url_for('play', slug=game.slug) }}" style="--accent: {{ game.color }}">
+    <a class="game-card" href="{{ url_for('play', slug=game.slug) }}" data-category="{{ game.category }}" style="--accent: {{ game.color }}">
       <div class="game-card-art" aria-hidden="true">
         <span class="game-card-letter">{{ game.title[0] }}</span>
       </div>
@@ -20,4 +35,59 @@
     </a>
   {% endfor %}
 </section>
+
+<p class="catalog-empty" id="catalogEmpty" hidden>No games in that category yet.</p>
+
+<script>
+(function () {
+  const toggle = document.getElementById("catToggle");
+  const menu = document.getElementById("catMenu");
+  const current = document.getElementById("catCurrent");
+  const wrap = document.getElementById("catDropdown");
+  const cards = document.querySelectorAll(".game-card");
+  const empty = document.getElementById("catalogEmpty");
+
+  function close() {
+    menu.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+  }
+  function open() {
+    menu.hidden = false;
+    toggle.setAttribute("aria-expanded", "true");
+  }
+  function toggleMenu() {
+    if (menu.hidden) open(); else close();
+  }
+
+  function applyFilter(cat) {
+    let shown = 0;
+    cards.forEach((card) => {
+      const match = !cat || card.dataset.category === cat;
+      card.style.display = match ? "" : "none";
+      if (match) shown++;
+    });
+    empty.hidden = shown > 0;
+  }
+
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMenu();
+  });
+  menu.addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-cat]");
+    if (!li) return;
+    const cat = li.dataset.cat;
+    current.textContent = cat || "All";
+    menu.querySelectorAll("li").forEach((x) => x.classList.toggle("active", x === li));
+    applyFilter(cat);
+    close();
+  });
+  document.addEventListener("click", (e) => {
+    if (!wrap.contains(e.target)) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") close();
+  });
+})();
+</script>
 {% endblock %}

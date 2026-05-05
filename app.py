@@ -216,7 +216,8 @@ GAMES_BY_SLUG = {g["slug"]: g for g in GAMES}
 
 @app.context_processor
 def inject_globals():
-    return {"games": GAMES}
+    categories = sorted({g["category"] for g in GAMES})
+    return {"games": GAMES, "categories": categories}
 
 
 @app.route("/")
