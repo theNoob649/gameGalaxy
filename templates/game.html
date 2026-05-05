@@ -3,18 +3,53 @@
 {% block content %}
 <section class="game-page" style="--accent: {{ game.color }}">
   <div class="game-page-head">
-    <a href="{{ url_for('home') }}" class="back-link">&larr; All games</a>
+    <div class="game-page-toprow">
+      <a href="{{ url_for('home') }}" class="back-link">&larr; All games</a>
+      <button type="button" class="fs-btn" id="fsBtn" title="Toggle fullscreen">
+        <span class="fs-icon" aria-hidden="true">⛶</span>
+        <span class="fs-label">Fullscreen</span>
+      </button>
+    </div>
     <h1>{{ game.title }}</h1>
     <p class="game-page-blurb">{{ game.blurb }}</p>
   </div>
-  <div class="game-frame-wrap">
+  <div class="game-frame-wrap" id="frameWrap">
     <iframe
       class="game-frame"
-      src="{{ url_for('static', filename='games/' ~ game.slug ~ '/index.html') }}"
+      src="{{ game.external_url if game.external_url else url_for('static', filename='games/' ~ game.slug ~ '/index.html') }}"
       title="{{ game.title }}"
       loading="lazy"
       allow="fullscreen"
+      allowfullscreen
     ></iframe>
   </div>
 </section>
+<script>
+(function () {
+  const wrap = document.getElementById("frameWrap");
+  const btn = document.getElementById("fsBtn");
+  const label = btn.querySelector(".fs-label");
+
+  function isFullscreen() {
+    return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement;
+  }
+  function enter() {
+    const target = wrap;
+    const fn = target.requestFullscreen || target.webkitRequestFullscreen || target.mozRequestFullScreen;
+    if (fn) fn.call(target).catch(() => {});
+  }
+  function exit() {
+    const fn = document.exitFullscreen || document.webkitExitFullscreen || document.mozCancelFullScreen;
+    if (fn) fn.call(document).catch(() => {});
+  }
+  btn.addEventListener("click", () => isFullscreen() ? exit() : enter());
+  ["fullscreenchange", "webkitfullscreenchange", "mozfullscreenchange"].forEach((ev) => {
+    document.addEventListener(ev, () => {
+      const fs = !!isFullscreen();
+      btn.classList.toggle("active", fs);
+      label.textContent = fs ? "Exit fullscreen" : "Fullscreen";
+    });
+  });
+})();
+</script>
 {% endblock %}

@@ -16,6 +16,25 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
+
+/* Themed scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #3a4574 #0a0e1f;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track {
+  background: #0a0e1f;
+}
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #3a4574, #2a335a);
+  border-radius: 6px;
+  border: 2px solid #0a0e1f;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #7c5cff, #ff6b9d);
+}
+*::-webkit-scrollbar-corner { background: #0a0e1f; }
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   background:
@@ -231,10 +250,33 @@ a:hover { color: var(--accent-2); }
 
 /* Game page */
 .game-page-head { margin-bottom: 16px; }
+.game-page-toprow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
 .back-link { color: var(--text-dim); font-size: 14px; }
 .back-link:hover { color: var(--accent-2); }
 .game-page h1 { margin: 6px 0 4px; }
 .game-page-blurb { color: var(--text-dim); margin: 0 0 12px; }
+.fs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.fs-btn:hover { border-color: var(--accent); }
+.fs-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; color: white; }
+.fs-icon { font-size: 16px; line-height: 1; }
 .game-frame-wrap {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -248,6 +290,20 @@ a:hover { color: var(--accent-2); }
   height: min(78vh, 720px);
   border: 0;
   background: #0a0e1f;
+}
+/* Fullscreen mode: iframe fills the whole viewport */
+.game-frame-wrap:fullscreen,
+.game-frame-wrap:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: 0;
+  background: #0a0e1f;
+}
+.game-frame-wrap:fullscreen .game-frame,
+.game-frame-wrap:-webkit-full-screen .game-frame {
+  width: 100vw;
+  height: 100vh;
 }
 
 /* Auth */
