@@ -214,10 +214,22 @@ GAMES = [
 GAMES_BY_SLUG = {g["slug"]: g for g in GAMES}
 
 
+_STATIC_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+
+def _thumb_url(slug):
+    """Return URL of a generated game thumbnail if it exists on disk, else None."""
+    path = os.path.join(_STATIC_ROOT, "games", slug, "thumb.png")
+    if os.path.exists(path):
+        return f"/static/games/{slug}/thumb.png"
+    return None
+
+
 @app.context_processor
 def inject_globals():
     categories = sorted({g["category"] for g in GAMES})
-    return {"games": GAMES, "categories": categories}
+    games_with_thumbs = [dict(g, thumb=_thumb_url(g["slug"])) for g in GAMES]
+    return {"games": games_with_thumbs, "categories": categories}
 
 
 @app.route("/")

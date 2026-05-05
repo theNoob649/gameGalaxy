@@ -25,7 +25,11 @@
   {% for game in games %}
     <a class="game-card" href="{{ url_for('play', slug=game.slug) }}" data-category="{{ game.category }}" style="--accent: {{ game.color }}">
       <div class="game-card-art" aria-hidden="true">
-        <span class="game-card-letter">{{ game.title[0] }}</span>
+        {% if game.thumb %}
+          <img class="game-card-thumb" src="{{ game.thumb }}" alt="" loading="lazy">
+        {% else %}
+          <span class="game-card-letter">{{ game.title[0] }}</span>
+        {% endif %}
       </div>
       <div class="game-card-body">
         <span class="game-card-cat">{{ game.category }}</span>
