@@ -6,24 +6,46 @@
     <h1>Pick a game. Play instantly.</h1>
     <p>No downloads. Your progress saves automatically on this device.</p>
   </div>
-  <div class="cat-dropdown" id="catDropdown">
-    <button class="cat-toggle" id="catToggle" type="button" aria-haspopup="listbox" aria-expanded="false">
-      <span class="cat-toggle-label">Category:</span>
-      <span class="cat-toggle-value" id="catCurrent">All</span>
-      <span class="cat-toggle-caret" aria-hidden="true">▾</span>
-    </button>
-    <ul class="cat-menu" id="catMenu" role="listbox" hidden>
-      <li role="option" data-cat="" class="active">All</li>
-      {% for c in categories %}
-        <li role="option" data-cat="{{ c }}">{{ c }}</li>
-      {% endfor %}
-    </ul>
+  <div class="hero-controls">
+    <div class="cat-dropdown" id="catDropdown">
+      <button class="cat-toggle" id="catToggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <span class="cat-toggle-label">Category:</span>
+        <span class="cat-toggle-value" id="catCurrent">All</span>
+        <span class="cat-toggle-caret" aria-hidden="true">▾</span>
+      </button>
+      <ul class="cat-menu" id="catMenu" role="listbox" hidden>
+        <li role="option" data-cat="" class="active">All</li>
+        {% for c in categories %}
+          <li role="option" data-cat="{{ c }}">{{ c }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    <div class="cat-dropdown" id="sortDropdown">
+      <button class="cat-toggle" id="sortToggle" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <span class="cat-toggle-label">Sort:</span>
+        <span class="cat-toggle-value" id="sortCurrent">Recommended</span>
+        <span class="cat-toggle-caret" aria-hidden="true">▾</span>
+      </button>
+      <ul class="cat-menu" id="sortMenu" role="listbox" hidden>
+        <li role="option" data-sort="recommended" class="active">Recommended</li>
+        <li role="option" data-sort="newest">Newest</li>
+        <li role="option" data-sort="oldest">Oldest</li>
+        <li role="option" data-sort="az">A . Z</li>
+        <li role="option" data-sort="za">Z . A</li>
+      </ul>
+    </div>
   </div>
 </section>
 
 <section class="catalog" id="catalog">
   {% for game in games %}
-    <a class="game-card" href="{{ url_for('play', slug=game.slug) }}" data-category="{{ game.category }}" style="--accent: {{ game.color }}">
+    <a class="game-card"
+       href="{{ url_for('play', slug=game.slug) }}"
+       data-category="{{ game.category }}"
+       data-title="{{ game.title }}"
+       data-chronological-index="{{ game.chronological_index }}"
+       data-recommended-rank="{{ game.recommended_rank }}"
+       style="--accent: {{ game.color }}">
       <div class="game-card-art" aria-hidden="true">
         {% if game.thumb %}
           <img class="game-card-thumb" src="{{ game.thumb }}" alt="" loading="lazy">
@@ -42,55 +64,154 @@
 
 <p class="catalog-empty" id="catalogEmpty" hidden>No games in that category yet.</p>
 
+<!-- Update popup. Shown once per device per SITE_VERSION. -->
+<div class="update-overlay" id="updateOverlay" hidden>
+  <div class="update-card" role="dialog" aria-labelledby="updateHeading">
+    <div class="update-head">
+      <h2 id="updateHeading">What's new</h2>
+      <div class="update-version">v{{ update_notes.version }}</div>
+    </div>
+    {% if update_notes.added %}
+    <section class="update-section">
+      <h3 class="update-h-added">Added</h3>
+      <ul>
+        {% for item in update_notes.added %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+    {% if update_notes.changed %}
+    <section class="update-section">
+      <h3 class="update-h-changed">Changed</h3>
+      <ul>
+        {% for item in update_notes.changed %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+    {% if update_notes.removed %}
+    <section class="update-section">
+      <h3 class="update-h-removed">Removed</h3>
+      <ul>
+        {% for item in update_notes.removed %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+    <button class="btn btn-primary update-dismiss" id="updateDismiss">Got it</button>
+  </div>
+</div>
+
 <script>
 (function () {
-  const toggle = document.getElementById("catToggle");
-  const menu = document.getElementById("catMenu");
-  const current = document.getElementById("catCurrent");
-  const wrap = document.getElementById("catDropdown");
-  const cards = document.querySelectorAll(".game-card");
+  // --- catalog filter + sort ---
+  const catToggle = document.getElementById("catToggle");
+  const catMenu = document.getElementById("catMenu");
+  const catCurrent = document.getElementById("catCurrent");
+  const catWrap = document.getElementById("catDropdown");
+
+  const sortToggle = document.getElementById("sortToggle");
+  const sortMenu = document.getElementById("sortMenu");
+  const sortCurrent = document.getElementById("sortCurrent");
+  const sortWrap = document.getElementById("sortDropdown");
+
+  const catalogEl = document.getElementById("catalog");
+  const cards = Array.from(catalogEl.querySelectorAll(".game-card"));
   const empty = document.getElementById("catalogEmpty");
 
-  function close() {
-    menu.hidden = true;
-    toggle.setAttribute("aria-expanded", "false");
-  }
-  function open() {
-    menu.hidden = false;
-    toggle.setAttribute("aria-expanded", "true");
-  }
-  function toggleMenu() {
-    if (menu.hidden) open(); else close();
+  let activeCategory = "";
+  let activeSort = "recommended";
+
+  function closeMenus() {
+    catMenu.hidden = true;  catToggle.setAttribute("aria-expanded", "false");
+    sortMenu.hidden = true; sortToggle.setAttribute("aria-expanded", "false");
   }
 
-  function applyFilter(cat) {
-    let shown = 0;
-    cards.forEach((card) => {
-      const match = !cat || card.dataset.category === cat;
-      card.style.display = match ? "" : "none";
-      if (match) shown++;
+  function apply() {
+    // sort
+    const sorted = cards.slice();
+    sorted.sort((a, b) => {
+      switch (activeSort) {
+        case "newest":
+          return (+b.dataset.chronologicalIndex) - (+a.dataset.chronologicalIndex);
+        case "oldest":
+          return (+a.dataset.chronologicalIndex) - (+b.dataset.chronologicalIndex);
+        case "az":
+          return a.dataset.title.localeCompare(b.dataset.title);
+        case "za":
+          return b.dataset.title.localeCompare(a.dataset.title);
+        case "recommended":
+        default:
+          return (+a.dataset.recommendedRank) - (+b.dataset.recommendedRank);
+      }
     });
+    // reattach in sort order
+    for (const c of sorted) catalogEl.appendChild(c);
+    // filter
+    let shown = 0;
+    for (const c of cards) {
+      const match = !activeCategory || c.dataset.category === activeCategory;
+      c.style.display = match ? "" : "none";
+      if (match) shown++;
+    }
     empty.hidden = shown > 0;
   }
 
-  toggle.addEventListener("click", (e) => {
+  catToggle.addEventListener("click", (e) => {
     e.stopPropagation();
-    toggleMenu();
+    const willOpen = catMenu.hidden;
+    closeMenus();
+    if (willOpen) {
+      catMenu.hidden = false;
+      catToggle.setAttribute("aria-expanded", "true");
+    }
   });
-  menu.addEventListener("click", (e) => {
+  sortToggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = sortMenu.hidden;
+    closeMenus();
+    if (willOpen) {
+      sortMenu.hidden = false;
+      sortToggle.setAttribute("aria-expanded", "true");
+    }
+  });
+
+  catMenu.addEventListener("click", (e) => {
     const li = e.target.closest("li[data-cat]");
     if (!li) return;
-    const cat = li.dataset.cat;
-    current.textContent = cat || "All";
-    menu.querySelectorAll("li").forEach((x) => x.classList.toggle("active", x === li));
-    applyFilter(cat);
-    close();
+    activeCategory = li.dataset.cat;
+    catCurrent.textContent = activeCategory || "All";
+    catMenu.querySelectorAll("li").forEach((x) => x.classList.toggle("active", x === li));
+    closeMenus();
+    apply();
+  });
+  sortMenu.addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-sort]");
+    if (!li) return;
+    activeSort = li.dataset.sort;
+    sortCurrent.textContent = li.textContent;
+    sortMenu.querySelectorAll("li").forEach((x) => x.classList.toggle("active", x === li));
+    closeMenus();
+    apply();
   });
   document.addEventListener("click", (e) => {
-    if (!wrap.contains(e.target)) close();
+    if (!catWrap.contains(e.target) && !sortWrap.contains(e.target)) closeMenus();
   });
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") close();
+    if (e.key === "Escape") closeMenus();
+  });
+  // initial sort
+  apply();
+
+  // --- update popup ---
+  const CURRENT_VERSION = {{ site_version | tojson }};
+  const SEEN_KEY = "gg:update:seen";
+  let seen = null;
+  try { seen = localStorage.getItem(SEEN_KEY); } catch (_) {}
+  const overlay = document.getElementById("updateOverlay");
+  if (seen !== CURRENT_VERSION) {
+    overlay.hidden = false;
+  }
+  document.getElementById("updateDismiss").addEventListener("click", () => {
+    overlay.hidden = true;
+    try { localStorage.setItem(SEEN_KEY, CURRENT_VERSION); } catch (_) {}
   });
 })();
 </script>

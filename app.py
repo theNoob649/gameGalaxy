@@ -338,11 +338,74 @@ def _thumb_url(slug):
     return None
 
 
+# Bump SITE_VERSION whenever there's a real user-visible change.
+# Any device that hasn't seen this exact string before will see the update
+# popup once on their next visit. Once dismissed, the string is stored in
+# localStorage and they don't see it again until the next bump.
+SITE_VERSION = "2026-05-29.a"
+
+UPDATE_NOTES = {
+    "version": SITE_VERSION,
+    "added": [
+        "Sort/Order dropdown next to the Category filter (Recommended, Newest, Oldest, A-Z, Z-A).",
+        "This update popup. You'll see it once per device when the site updates, then never again until the next update.",
+        "Three new games: Asteroid Runner, Higher or Lower, Mastermind.",
+        "Two new casino games: Roulette and Slot Machine.",
+        "WASD movement support in Tetris, Pac-Man, Space Invaders, Breakout, and Frogger.",
+        "'Play again' button on every win/lose popup that restarts the game in one click.",
+    ],
+    "changed": [
+        "Pac-Man: bigger tiles, ghosts no longer respawn inside walls, smarter ghost AI.",
+        "Tower Defense: difficulty selector (Easy 20 / Medium 10 / Hard 5 health) and clearer HUD.",
+        "Stick Hero: the hero always walks the stick now and falls off the end if it's too long or too short.",
+        "Plinko: payout buckets are visible now (no longer cropped).",
+        "Roulette: wheel spins much longer and more dramatically.",
+        "Slot Machine: animation works on every spin instead of only the first.",
+        "Asteroid Runner: ship is much more responsive.",
+        "Pong: ball no longer clips through the corners of the paddles.",
+        "Every button now visibly presses and pulses on click so you can tell it registered.",
+    ],
+    "removed": [
+        "Sky Runner (replaced by Chrome Dino as the runner-genre game).",
+    ],
+}
+
+# Curated 'Recommended' order. Lower index = more recommended. Slugs not in
+# this list are pushed to the bottom of the Recommended sort. Update this
+# list when the user passes along popularity data.
+RECOMMENDED_ORDER = [
+    "pacman", "tetris", "snake", "twenty-forty-eight", "word-guess",
+    "flap", "tower-defense", "chrome-dino", "asteroids", "pong",
+    "minesweeper", "breakout", "space-invaders", "coal-clicker",
+    "memory-match", "tic-tac-toe", "connect-four", "checkers",
+    "blackjack", "roulette", "slot-machine", "plinko", "higher-lower",
+    "frogger", "bubble-shooter", "gem-swap", "stack-tower",
+    "stick-hero", "color-switch", "lockpick", "color-echo",
+    "typing-race", "asteroid-runner", "mastermind", "hangman",
+    "word-search", "trivia", "draw-guess", "whack-a-mole",
+    "reaction-duel", "rock-paper-scissors", "sumo-smash",
+    "tank-battle", "battleship",
+]
+
+
 @app.context_processor
 def inject_globals():
     categories = sorted({g["category"] for g in GAMES})
-    games_with_thumbs = [dict(g, thumb=_thumb_url(g["slug"])) for g in GAMES]
-    return {"games": games_with_thumbs, "categories": categories}
+    rec_rank = {slug: i for i, slug in enumerate(RECOMMENDED_ORDER)}
+    games_with_meta = []
+    for i, g in enumerate(GAMES):
+        games_with_meta.append(dict(
+            g,
+            thumb=_thumb_url(g["slug"]),
+            chronological_index=i,
+            recommended_rank=rec_rank.get(g["slug"], 99999),
+        ))
+    return {
+        "games": games_with_meta,
+        "categories": categories,
+        "site_version": SITE_VERSION,
+        "update_notes": UPDATE_NOTES,
+    }
 
 
 @app.route("/")
