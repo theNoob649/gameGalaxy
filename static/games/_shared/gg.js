@@ -62,8 +62,11 @@
     }
   });
 
-  // Shared "You Win!" overlay. Call GG.youWin() from any beatable game.
-  function youWin(title, subtitle) {
+  // --- end-of-game overlay shared by youWin / youLose ---
+  // Both Play-again and Continue are exposed. Play-again reloads the iframe
+  // by default (works for every game without per-game wiring), or invokes a
+  // custom onRestart callback if the game passes one.
+  function showOverlay(opts) {
     if (document.getElementById("gg-win-overlay")) return;
     const ov = document.createElement("div");
     ov.id = "gg-win-overlay";
@@ -75,26 +78,46 @@
       animation: gg-fade 0.18s ease-out;
     `;
     const card = document.createElement("div");
-    card.style.cssText = `text-align: center; padding: 40px 30px; max-width: 90%;`;
-    const heading = title || "You Win!";
+    card.style.cssText = "text-align: center; padding: 40px 30px; max-width: 90%;";
     card.innerHTML = `
       <div style="font-size: clamp(48px, 11vw, 110px); font-weight: 900; line-height: 1;
-                  background: linear-gradient(135deg, #fcd34d, #f97316, #ec4899);
+                  background: ${opts.gradient};
                   -webkit-background-clip: text; background-clip: text; color: transparent;
-                  letter-spacing: -0.02em;">${heading}</div>
-      <div style="margin: 18px 0 22px; color: #9aa3c7; font-size: 16px;">${subtitle || ""}</div>
+                  letter-spacing: -0.02em;">${opts.title}</div>
+      <div style="margin: 18px 0 22px; color: #9aa3c7; font-size: 16px;">${opts.subtitle || ""}</div>
     `;
-    const btn = document.createElement("button");
-    btn.textContent = "Continue";
-    btn.style.cssText = `
+    const row = document.createElement("div");
+    row.style.cssText = "display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;";
+
+    const playAgain = document.createElement("button");
+    playAgain.textContent = "Play again";
+    playAgain.style.cssText = `
       background: linear-gradient(135deg, #7c5cff, #ff6b9d);
       border: 0; color: white; font-weight: 700;
       padding: 12px 28px; border-radius: 10px; cursor: pointer;
       font-size: 16px; font-family: inherit;
       box-shadow: 0 8px 24px rgba(124, 92, 255, 0.35);
     `;
-    btn.addEventListener("click", () => ov.remove());
-    card.appendChild(btn);
+    playAgain.addEventListener("click", () => {
+      ov.remove();
+      if (typeof opts.onRestart === "function") opts.onRestart();
+      else location.reload();
+    });
+
+    const cont = document.createElement("button");
+    cont.textContent = "Continue";
+    cont.style.cssText = `
+      background: transparent;
+      border: 1px solid #475569;
+      color: #cbd5e1; font-weight: 600;
+      padding: 12px 28px; border-radius: 10px; cursor: pointer;
+      font-size: 16px; font-family: inherit;
+    `;
+    cont.addEventListener("click", () => ov.remove());
+
+    row.appendChild(playAgain);
+    row.appendChild(cont);
+    card.appendChild(row);
     ov.appendChild(card);
     if (!document.getElementById("gg-win-style")) {
       const st = document.createElement("style");
@@ -105,45 +128,22 @@
     document.body.appendChild(ov);
   }
 
-  function youLose(title, subtitle) {
-    if (document.getElementById("gg-win-overlay")) return;
-    const ov = document.createElement("div");
-    ov.id = "gg-win-overlay";
-    ov.style.cssText = `
-      position: fixed; inset: 0; z-index: 9999;
-      background: rgba(8, 12, 32, 0.92);
-      display: grid; place-items: center;
-      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      animation: gg-fade 0.18s ease-out;
-    `;
-    const card = document.createElement("div");
-    card.style.cssText = `text-align: center; padding: 40px 30px; max-width: 90%;`;
-    const heading = title || "You Lose";
-    card.innerHTML = `
-      <div style="font-size: clamp(48px, 11vw, 110px); font-weight: 900; line-height: 1;
-                  background: linear-gradient(135deg, #f87171, #dc2626, #7c2d12);
-                  -webkit-background-clip: text; background-clip: text; color: transparent;
-                  letter-spacing: -0.02em;">${heading}</div>
-      <div style="margin: 18px 0 22px; color: #9aa3c7; font-size: 16px;">${subtitle || ""}</div>
-    `;
-    const btn = document.createElement("button");
-    btn.textContent = "Continue";
-    btn.style.cssText = `
-      background: linear-gradient(135deg, #475569, #1f2937);
-      border: 1px solid #475569; color: white; font-weight: 700;
-      padding: 12px 28px; border-radius: 10px; cursor: pointer;
-      font-size: 16px; font-family: inherit;
-    `;
-    btn.addEventListener("click", () => ov.remove());
-    card.appendChild(btn);
-    ov.appendChild(card);
-    if (!document.getElementById("gg-win-style")) {
-      const st = document.createElement("style");
-      st.id = "gg-win-style";
-      st.textContent = "@keyframes gg-fade { from { opacity: 0 } to { opacity: 1 } }";
-      document.head.appendChild(st);
-    }
-    document.body.appendChild(ov);
+  function youWin(title, subtitle, opts) {
+    showOverlay({
+      title: title || "You Win!",
+      subtitle,
+      gradient: "linear-gradient(135deg, #fcd34d, #f97316, #ec4899)",
+      onRestart: opts && opts.onRestart,
+    });
+  }
+
+  function youLose(title, subtitle, opts) {
+    showOverlay({
+      title: title || "You Lose",
+      subtitle,
+      gradient: "linear-gradient(135deg, #f87171, #dc2626, #7c2d12)",
+      onRestart: opts && opts.onRestart,
+    });
   }
 
   window.GG = { save, load, loadFromHost, youWin, youLose };
