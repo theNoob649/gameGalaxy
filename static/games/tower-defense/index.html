@@ -6,10 +6,32 @@
 <title>Tower Defense</title>
 <link rel="stylesheet" href="../_shared/game.css">
 <style>
-  .td-layout { display: grid; grid-template-columns: 1fr 260px; gap: 10px; width: 100%; max-width: 1020px; }
-  .td-stage { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px; box-shadow: 0 8px 30px rgba(0,0,0,0.45); }
+  .td-layout {
+    display: grid;
+    grid-template-columns: auto 260px;
+    align-items: start;
+    gap: 10px;
+    width: 100%;
+    max-width: 1020px;
+  }
+  .td-stage {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 6px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    width: fit-content;
+  }
   canvas { display: block; cursor: crosshair; border-radius: 10px; }
-  .td-side { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; font-size: 13px; }
+  .td-side {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px;
+    font-size: 13px;
+    max-height: 432px;
+    overflow-y: auto;
+  }
 
   /* Clear stat tiles instead of one inline row */
   .td-stat-grid {
