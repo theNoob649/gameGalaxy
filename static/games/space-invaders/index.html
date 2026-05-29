@@ -39,9 +39,14 @@ bestEl.textContent = saved.best;
 const keys = {};
 window.addEventListener("keydown", (e) => {
   keys[e.key.toLowerCase()] = true;
-  if (["arrowleft","arrowright"," "].includes(e.key.toLowerCase())) e.preventDefault();
+  if (["arrowleft","arrowright","a","d"," "].includes(e.key.toLowerCase())) e.preventDefault();
 });
 window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
+function held(name) {
+  if (name === "left")  return keys["arrowleft"]  || keys["a"];
+  if (name === "right") return keys["arrowright"] || keys["d"];
+  return keys[name];
+}
 
 let ship, aliens, alienVx, alienStepDown, bullets, alienBullets, score, lives, wave, alive, cooldown;
 
@@ -82,8 +87,8 @@ function tick(ts) {
   const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
   lastTs = ts;
   if (alive) {
-    if (keys["arrowleft"])  ship.x = Math.max(ship.w / 2, ship.x - 320 * dt);
-    if (keys["arrowright"]) ship.x = Math.min(W - ship.w / 2, ship.x + 320 * dt);
+    if (held("left"))  ship.x = Math.max(ship.w / 2, ship.x - 320 * dt);
+    if (held("right")) ship.x = Math.min(W - ship.w / 2, ship.x + 320 * dt);
     cooldown -= dt;
     if (keys[" "] && cooldown <= 0) {
       bullets.push({ x: ship.x, y: ship.y - 10, vy: -480 });

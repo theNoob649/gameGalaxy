@@ -247,9 +247,23 @@ GAMES = [
     {
         "slug": "blackjack",
         "title": "Blackjack",
-        "category": "Card",
+        "category": "Casino",
         "blurb": "Beat the dealer to 21. Bet your chips, double down, or split.",
         "color": "#16a34a",
+    },
+    {
+        "slug": "roulette",
+        "title": "Roulette",
+        "category": "Casino",
+        "blurb": "European wheel. Bet on numbers, colors, dozens. Spin and pray.",
+        "color": "#dc2626",
+    },
+    {
+        "slug": "slot-machine",
+        "title": "Slot Machine",
+        "category": "Casino",
+        "blurb": "Pull the lever. Match three for the jackpot.",
+        "color": "#fbbf24",
     },
     {
         "slug": "stick-hero",
@@ -275,7 +289,7 @@ GAMES = [
     {
         "slug": "plinko",
         "title": "Plinko",
-        "category": "Casual",
+        "category": "Casino",
         "blurb": "Drop a chip through the pegs and watch where it lands.",
         "color": "#f43f5e",
     },

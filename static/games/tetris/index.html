@@ -158,22 +158,23 @@ function die() {
 
 window.addEventListener("keydown", (e) => {
   if (!alive) return;
-  if (e.key === "ArrowLeft") {
+  const k = e.key.toLowerCase();
+  if (k === "arrowleft" || k === "a") {
     if (valid(current, -1, 0)) current.x--;
     e.preventDefault();
-  } else if (e.key === "ArrowRight") {
+  } else if (k === "arrowright" || k === "d") {
     if (valid(current, 1, 0)) current.x++;
     e.preventDefault();
-  } else if (e.key === "ArrowDown") {
+  } else if (k === "arrowdown" || k === "s") {
     if (valid(current, 0, 1)) { current.y++; score++; scoreEl.textContent = score; }
     e.preventDefault();
-  } else if (e.key === "ArrowUp") {
+  } else if (k === "arrowup" || k === "w") {
     const rotated = rotate(current.blocks);
     if (valid(current, 0, 0, rotated)) current.blocks = rotated;
     else if (valid(current, -1, 0, rotated)) { current.x--; current.blocks = rotated; }
     else if (valid(current, 1, 0, rotated)) { current.x++; current.blocks = rotated; }
     e.preventDefault();
-  } else if (e.key === " ") {
+  } else if (k === " ") {
     while (valid(current, 0, 1)) { current.y++; score += 2; }
     scoreEl.textContent = score;
     step();

@@ -84,22 +84,26 @@ function tick(ts) {
     stick.angle += 4.5 * dt;
     if (stick.angle >= Math.PI / 2) {
       stick.angle = Math.PI / 2;
-      // determine if it reaches the next platform
+      // Always start walking, regardless of stick length. The hero finds
+      // out the hard way at the end of the stick whether he makes it.
+      phase = "walking";
+      // bonus for hitting near the center of the next platform
       const tipX = (current.x + current.w) + stick.len;
-      if (tipX >= next.x && tipX <= next.x + next.w) {
-        phase = "walking";
-        // bonus for hitting near the center
-        const centerHit = Math.abs(tipX - (next.x + next.w / 2)) < 6;
-        if (centerHit) score++;
-      } else {
-        phase = "sliding";
-      }
+      const centerHit = Math.abs(tipX - (next.x + next.w / 2)) < 6;
+      if (centerHit && tipX >= next.x && tipX <= next.x + next.w) score++;
     }
   } else if (phase === "walking") {
     hero.x += 280 * dt;
-    if (hero.x >= next.x + next.w - 14) {
+    const tipX = (current.x + current.w) + stick.len;
+    // Hero falls if he walks past the end of the stick AND is not standing
+    // on the next platform.
+    const overNextPlatform = hero.x >= next.x && hero.x <= next.x + next.w;
+    if (hero.x >= tipX && !overNextPlatform) {
+      // Stick too short or too long: walk off the end and drop.
+      phase = "sliding";
+    } else if (overNextPlatform && hero.x >= next.x + next.w - 14) {
+      // Landed safely on the next platform: clamp and advance.
       hero.x = next.x + next.w - 14;
-      // advance to new round
       score++;
       scoreEl.textContent = score;
       current = next;
@@ -109,7 +113,7 @@ function tick(ts) {
       targetCameraShift = current.x - 70;
     }
   } else if (phase === "sliding") {
-    hero.x += 280 * dt;
+    hero.x += 140 * dt;
     hero.y += 600 * dt;
     if (hero.y > H + 40) die();
   }

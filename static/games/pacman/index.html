@@ -15,17 +15,19 @@
     <span>Level: <strong id="level">1</strong></span>
     <button class="game-btn primary" id="play">Play</button>
   </div>
-  <canvas id="cv" width="448" height="496"></canvas>
-  <div class="game-message" id="msg">Arrow keys. Eat all the dots. Big dots scare the ghosts.</div>
+  <canvas id="cv"></canvas>
+  <div class="game-message" id="msg">Arrow keys or WASD. Eat all dots. Big dots scare the ghosts.</div>
 </div>
 <script src="../_shared/gg.js"></script>
 <script>
 const SLUG = "pacman";
 const cv = document.getElementById("cv");
 const ctx = cv.getContext("2d");
-const TILE = 16;
-// 28 cols x 31 rows classic maze inspired layout. Simplified.
-// . = pellet, o = power pellet, # = wall, ' ' = empty path, G = ghost spawn, P = pacman spawn
+const TILE = 22;
+
+// Cleaner maze. Symmetric, with a 7-wide x 3-tall ghost house in the middle.
+//   # = wall    . = dot    o = power dot    space = path (no dot)
+//   G = ghost spawn   P = pacman spawn
 const MAZE = [
   "############################",
   "#............##............#",
@@ -36,12 +38,11 @@ const MAZE = [
   "#.####.##.########.##.####.#",
   "#.####.##.########.##.####.#",
   "#......##....##....##......#",
-  "######.#####.##.#####.######",
-  "######.#####.##.#####.######",
+  "######.##### ## #####.######",
+  "######.##### ## #####.######",
   "######.##          ##.######",
   "######.## ###GG### ##.######",
-  "      .   #      #   .      ",
-  "######.## #      # ##.######",
+  "      .   #GGGGGG#   .      ",
   "######.## ######## ##.######",
   "######.##          ##.######",
   "######.## ######## ##.######",
@@ -76,15 +77,15 @@ const msgEl = document.getElementById("msg");
 const playBtn = document.getElementById("play");
 bestEl.textContent = saved.best;
 
-let walls, dots, powerDots, pac, ghosts, score, lives, level, alive;
+let walls, dots, powerDots, pac, ghosts, score, lives, level, alive, pacSpawn, ghostSpawns;
 let frightenedUntil = 0;
 const GHOST_COLORS = ["#f87171", "#f9a8d4", "#22d3ee", "#fb923c"];
+const PAC_SPEED = 130;
+const GHOST_SPEED = 100;
 
 function buildMaze() {
   walls = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
-  dots = []; powerDots = [];
-  let pacSpawn = { r: 23, c: 13 };
-  const ghostSpawns = [];
+  dots = []; powerDots = []; ghostSpawns = [];
   for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
     const ch = MAZE[r][c];
     if (ch === "#") walls[r][c] = true;
@@ -99,46 +100,42 @@ function buildMaze() {
     dir: { x: 0, y: 0 }, next: { x: 0, y: 0 },
     mouth: 0,
   };
-  ghosts = ghostSpawns.slice(0, 4).map((s, i) => ({
-    x: (s.c + 0.5) * TILE,
-    y: (s.r + 0.5) * TILE,
-    dir: { x: 0, y: -1 },
-    color: GHOST_COLORS[i],
-    home: { x: (s.c + 0.5) * TILE, y: (s.r + 0.5) * TILE },
-    frightened: false,
-    eaten: false,
-  }));
-  // pad if maze has fewer than 4 G slots
-  while (ghosts.length < 4) {
+  ghosts = [];
+  for (let i = 0; i < 4; i++) {
+    const s = ghostSpawns[i] || ghostSpawns[0] || { r: 12, c: 14 };
     ghosts.push({
-      x: W / 2, y: H / 2,
+      x: (s.c + 0.5) * TILE,
+      y: (s.r + 0.5) * TILE,
       dir: { x: 0, y: -1 },
-      color: GHOST_COLORS[ghosts.length],
-      home: { x: W / 2, y: H / 2 },
-      frightened: false, eaten: false,
+      color: GHOST_COLORS[i],
+      home: { x: (s.c + 0.5) * TILE, y: (s.r + 0.5) * TILE },
+      frightened: false,
+      eaten: false,
+      releaseAt: i * 0.8,
     });
   }
 }
 
 function tileAt(x, y) {
-  const c = Math.floor(x / TILE);
-  const r = Math.floor(y / TILE);
-  return { r, c };
+  return { r: Math.floor(y / TILE), c: Math.floor(x / TILE) };
 }
 
 function wallAt(r, c) {
-  if (c < 0 || c >= COLS) return false; // tunnels
+  if (c < 0 || c >= COLS) return false; // tunnels wrap around
   if (r < 0 || r >= ROWS) return true;
   return walls[r][c];
 }
 
-function canMove(x, y, dx, dy) {
-  // check the next tile in dx,dy direction relative to the entity position
-  const eps = 0.1;
-  const nx = x + dx * (TILE / 2 - eps);
-  const ny = y + dy * (TILE / 2 - eps);
-  const { r, c } = tileAt(nx, ny);
-  return !wallAt(r, c);
+// Check whether an entity centered at (x, y) can move into the NEXT tile in direction (dx, dy).
+function canEnterDir(x, y, dx, dy) {
+  // We must be aligned to the perpendicular axis (or close to it) to turn.
+  // For each direction, look at the tile that x,y will be centered in after stepping one tile.
+  if (dx === 0 && dy === 0) return true;
+  const cellC = Math.floor(x / TILE);
+  const cellR = Math.floor(y / TILE);
+  const nextC = cellC + dx;
+  const nextR = cellR + dy;
+  return !wallAt(nextR, nextC);
 }
 
 function newGame() {
@@ -147,75 +144,69 @@ function newGame() {
   scoreEl.textContent = 0;
   livesEl.textContent = 3;
   levelEl.textContent = 1;
-  msgEl.textContent = "Arrow keys. Eat all dots.";
+  msgEl.textContent = "Arrow keys or WASD. Eat all dots.";
+}
+
+function resetPositions() {
+  pac.x = (pacSpawn.c + 0.5) * TILE;
+  pac.y = (pacSpawn.r + 0.5) * TILE;
+  pac.dir = { x: 0, y: 0 };
+  pac.next = { x: 0, y: 0 };
+  ghosts.forEach((g, i) => {
+    const s = ghostSpawns[i] || ghostSpawns[0];
+    g.x = (s.c + 0.5) * TILE;
+    g.y = (s.r + 0.5) * TILE;
+    g.dir = { x: 0, y: -1 };
+    g.frightened = false;
+    g.eaten = false;
+    g.releaseAt = performance.now() / 1000 + i * 0.8;
+  });
 }
 
 window.addEventListener("keydown", (e) => {
   if (!alive) return;
-  if (e.key === "ArrowLeft")  pac.next = { x: -1, y: 0 };
-  if (e.key === "ArrowRight") pac.next = { x: 1, y: 0 };
-  if (e.key === "ArrowUp")    pac.next = { x: 0, y: -1 };
-  if (e.key === "ArrowDown")  pac.next = { x: 0, y: 1 };
-  if (e.key.startsWith("Arrow")) e.preventDefault();
+  const k = e.key.toLowerCase();
+  if (k === "arrowleft"  || k === "a") pac.next = { x: -1, y: 0 };
+  if (k === "arrowright" || k === "d") pac.next = { x: 1, y: 0 };
+  if (k === "arrowup"    || k === "w") pac.next = { x: 0, y: -1 };
+  if (k === "arrowdown"  || k === "s") pac.next = { x: 0, y: 1 };
+  if (k.startsWith("arrow") || ["w","a","s","d"].includes(k)) e.preventDefault();
 });
 
-const PAC_SPEED = 100;
-const GHOST_SPEED = 80;
+// Returns true if (x, y) is "centered" on the tile grid along the axis(es)
+// perpendicular to dir. Used to gate direction changes to grid intersections.
+function atGridCenter(x, y, threshold = 2.5) {
+  const cx = Math.floor(x / TILE) * TILE + TILE / 2;
+  const cy = Math.floor(y / TILE) * TILE + TILE / 2;
+  return Math.abs(x - cx) < threshold && Math.abs(y - cy) < threshold;
+}
 
 let lastTs = 0;
 function tick(ts) {
   const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
   lastTs = ts;
   if (alive) {
-    // tunnel wrap
-    if (pac.x < 0) pac.x = W;
-    if (pac.x > W) pac.x = 0;
-    // try the queued direction
-    if (canMove(pac.x, pac.y, pac.next.x, pac.next.y)) pac.dir = pac.next;
-    if (!canMove(pac.x, pac.y, pac.dir.x, pac.dir.y)) {
-      pac.dir = { x: 0, y: 0 };
-    }
-    pac.x += pac.dir.x * PAC_SPEED * dt;
-    pac.y += pac.dir.y * PAC_SPEED * dt;
-    pac.mouth += 8 * dt;
-    // eat
-    const t = tileAt(pac.x, pac.y);
-    for (const d of dots.slice()) {
-      if (d.r === t.r && d.c === t.c) {
-        dots.splice(dots.indexOf(d), 1);
-        score += 10;
-      }
-    }
-    for (const p of powerDots.slice()) {
-      if (p.r === t.r && p.c === t.c) {
-        powerDots.splice(powerDots.indexOf(p), 1);
-        score += 50;
-        frightenedUntil = performance.now() + 7000;
-        for (const g of ghosts) if (!g.eaten) g.frightened = true;
-      }
-    }
-    scoreEl.textContent = score;
-    // ghosts
+    movePac(dt);
     for (const g of ghosts) {
       if (g.frightened && performance.now() > frightenedUntil) g.frightened = false;
       moveGhost(g, dt);
-      // collision
-      if (Math.hypot(g.x - pac.x, g.y - pac.y) < TILE * 0.7) {
+      // collision with pac
+      if (Math.hypot(g.x - pac.x, g.y - pac.y) < TILE * 0.65) {
         if (g.eaten) continue;
         if (g.frightened) {
           g.eaten = true;
-          g.x = g.home.x; g.y = g.home.y;
           g.frightened = false;
+          const s = ghostSpawns[ghosts.indexOf(g)] || ghostSpawns[0];
+          g.x = (s.c + 0.5) * TILE;
+          g.y = (s.r + 0.5) * TILE;
           setTimeout(() => { g.eaten = false; }, 3000);
           score += 200; scoreEl.textContent = score;
         } else {
           lives--;
           livesEl.textContent = lives;
           if (lives <= 0) return die();
-          pac.x = (13.5) * TILE;
-          pac.y = (23.5) * TILE;
-          pac.dir = { x: 0, y: 0 }; pac.next = { x: 0, y: 0 };
-          for (const gh of ghosts) { gh.x = gh.home.x; gh.y = gh.home.y; gh.frightened = false; }
+          resetPositions();
+          return;
         }
       }
     }
@@ -225,41 +216,81 @@ function tick(ts) {
   requestAnimationFrame(tick);
 }
 
-function moveGhost(g, dt) {
-  // every half-tile, randomly choose a direction (with simple bias toward pac unless frightened)
-  const speed = g.frightened ? GHOST_SPEED * 0.55 : GHOST_SPEED;
-  const x0 = g.x, y0 = g.y;
-  g.x += g.dir.x * speed * dt;
-  g.y += g.dir.y * speed * dt;
+function movePac(dt) {
   // tunnel wrap
-  if (g.x < 0) g.x = W;
-  if (g.x > W) g.x = 0;
-  // when centered in a tile, possibly pick a new direction
-  const cx = Math.floor(g.x / TILE) * TILE + TILE / 2;
-  const cy = Math.floor(g.y / TILE) * TILE + TILE / 2;
-  if (Math.abs(g.x - cx) < 1 && Math.abs(g.y - cy) < 1) {
-    g.x = cx; g.y = cy;
-    const dirs = [
+  if (pac.x < -TILE / 2) pac.x = W + TILE / 2;
+  if (pac.x > W + TILE / 2) pac.x = -TILE / 2;
+  // try queued direction only when centered on a tile
+  if (atGridCenter(pac.x, pac.y) && (pac.next.x !== 0 || pac.next.y !== 0)) {
+    if (canEnterDir(pac.x, pac.y, pac.next.x, pac.next.y)) {
+      pac.dir = pac.next;
+      // snap to center along the perpendicular axis
+      if (pac.dir.x !== 0) pac.y = Math.floor(pac.y / TILE) * TILE + TILE / 2;
+      if (pac.dir.y !== 0) pac.x = Math.floor(pac.x / TILE) * TILE + TILE / 2;
+    }
+  }
+  // stop if the current direction is blocked at the next tile boundary
+  if ((pac.dir.x !== 0 || pac.dir.y !== 0) && atGridCenter(pac.x, pac.y) && !canEnterDir(pac.x, pac.y, pac.dir.x, pac.dir.y)) {
+    pac.dir = { x: 0, y: 0 };
+  }
+  pac.x += pac.dir.x * PAC_SPEED * dt;
+  pac.y += pac.dir.y * PAC_SPEED * dt;
+  pac.mouth += 8 * dt;
+  // eat
+  const t = tileAt(pac.x, pac.y);
+  for (const d of dots.slice()) {
+    if (d.r === t.r && d.c === t.c) {
+      dots.splice(dots.indexOf(d), 1);
+      score += 10;
+    }
+  }
+  for (const p of powerDots.slice()) {
+    if (p.r === t.r && p.c === t.c) {
+      powerDots.splice(powerDots.indexOf(p), 1);
+      score += 50;
+      frightenedUntil = performance.now() + 7000;
+      for (const g of ghosts) if (!g.eaten) g.frightened = true;
+    }
+  }
+  scoreEl.textContent = score;
+}
+
+function moveGhost(g, dt) {
+  // hold the ghost in the house until releaseAt has elapsed
+  if (g.releaseAt > performance.now() / 1000) return;
+  // tunnel wrap
+  if (g.x < -TILE / 2) g.x = W + TILE / 2;
+  if (g.x > W + TILE / 2) g.x = -TILE / 2;
+  const speed = g.frightened ? GHOST_SPEED * 0.55 : GHOST_SPEED;
+  // intersection-based decisions: when centered on a tile, pick a direction.
+  if (atGridCenter(g.x, g.y)) {
+    // snap
+    g.x = Math.floor(g.x / TILE) * TILE + TILE / 2;
+    g.y = Math.floor(g.y / TILE) * TILE + TILE / 2;
+    const candidates = [
       { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
-    ].filter((d) => !(d.x === -g.dir.x && d.y === -g.dir.y))
-     .filter((d) => canMove(g.x, g.y, d.x, d.y));
-    if (dirs.length === 0) g.dir = { x: -g.dir.x, y: -g.dir.y };
-    else if (g.frightened || Math.random() < 0.25) {
-      g.dir = dirs[Math.floor(Math.random() * dirs.length)];
+    ].filter((d) => !(d.x === -g.dir.x && d.y === -g.dir.y)) // no reverse
+     .filter((d) => canEnterDir(g.x, g.y, d.x, d.y));
+    if (candidates.length === 0) {
+      // dead end, force reverse
+      g.dir = { x: -g.dir.x, y: -g.dir.y };
+    } else if (g.frightened) {
+      g.dir = candidates[Math.floor(Math.random() * candidates.length)];
+    } else if (Math.random() < 0.15) {
+      // a little randomness
+      g.dir = candidates[Math.floor(Math.random() * candidates.length)];
     } else {
-      // chase pacman: pick direction that minimizes distance
-      dirs.sort((a, b) => {
-        const da = Math.hypot(g.x + a.x * TILE - pac.x, g.y + a.y * TILE - pac.y);
-        const db = Math.hypot(g.x + b.x * TILE - pac.x, g.y + b.y * TILE - pac.y);
+      // chase pacman: pick direction minimizing distance to pac
+      candidates.sort((a, b) => {
+        const da = Math.hypot((g.x + a.x * TILE) - pac.x, (g.y + a.y * TILE) - pac.y);
+        const db = Math.hypot((g.x + b.x * TILE) - pac.x, (g.y + b.y * TILE) - pac.y);
         return da - db;
       });
-      g.dir = dirs[0];
+      g.dir = candidates[0];
     }
-  } else if (!canMove(g.x, g.y, g.dir.x, g.dir.y)) {
-    // bumped into wall mid-cell, revert
-    g.x = x0; g.y = y0;
-    g.dir = { x: -g.dir.x, y: -g.dir.y };
   }
+  g.x += g.dir.x * speed * dt;
+  g.y += g.dir.y * speed * dt;
 }
 
 function winLevel() {
@@ -295,10 +326,16 @@ function draw() {
   // dots
   ctx.fillStyle = "#fcd34d";
   for (const d of dots) {
-    ctx.beginPath(); ctx.arc(d.c * TILE + TILE / 2, d.r * TILE + TILE / 2, 2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(d.c * TILE + TILE / 2, d.r * TILE + TILE / 2, 2.5, 0, Math.PI * 2);
+    ctx.fill();
   }
+  // power dots, pulsing
+  const pulse = 6 + Math.sin(performance.now() / 200) * 1.5;
   for (const p of powerDots) {
-    ctx.beginPath(); ctx.arc(p.c * TILE + TILE / 2, p.r * TILE + TILE / 2, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(p.c * TILE + TILE / 2, p.r * TILE + TILE / 2, pulse, 0, Math.PI * 2);
+    ctx.fill();
   }
   // pacman
   ctx.fillStyle = "#facc15";
@@ -310,13 +347,13 @@ function draw() {
   else if (pac.dir.y === 1) angle = Math.PI / 2;
   ctx.beginPath();
   ctx.moveTo(pac.x, pac.y);
-  ctx.arc(pac.x, pac.y, TILE / 2 - 1, angle + mouthOpen, angle + Math.PI * 2 - mouthOpen);
+  ctx.arc(pac.x, pac.y, TILE * 0.45, angle + mouthOpen, angle + Math.PI * 2 - mouthOpen);
   ctx.closePath();
   ctx.fill();
   // ghosts
   for (const g of ghosts) {
-    ctx.fillStyle = g.eaten ? "rgba(255,255,255,0.3)" : g.frightened ? "#3b82f6" : g.color;
-    const r = TILE / 2 - 1;
+    ctx.fillStyle = g.eaten ? "rgba(255,255,255,0.25)" : g.frightened ? "#3b82f6" : g.color;
+    const r = TILE * 0.45;
     ctx.beginPath();
     ctx.arc(g.x, g.y + 1, r, Math.PI, 0);
     ctx.lineTo(g.x + r, g.y + r);
@@ -329,18 +366,18 @@ function draw() {
     ctx.fill();
     // eyes
     ctx.fillStyle = "white";
-    ctx.beginPath(); ctx.arc(g.x - 3, g.y - 1, 2.5, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(g.x + 3, g.y - 1, 2.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(g.x - 4, g.y - 1, 3, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(g.x + 4, g.y - 1, 3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#0a0e1f";
-    ctx.beginPath(); ctx.arc(g.x - 3 + g.dir.x * 1.5, g.y - 1 + g.dir.y * 1.5, 1, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(g.x + 3 + g.dir.x * 1.5, g.y - 1 + g.dir.y * 1.5, 1, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(g.x - 4 + g.dir.x * 1.5, g.y - 1 + g.dir.y * 1.5, 1.2, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(g.x + 4 + g.dir.x * 1.5, g.y - 1 + g.dir.y * 1.5, 1.2, 0, Math.PI * 2); ctx.fill();
   }
 }
 
 playBtn.addEventListener("click", () => { newGame(); playBtn.textContent = "Restart"; });
 newGame();
 alive = false;
-msgEl.textContent = "Press Play. Arrow keys to move.";
+msgEl.textContent = "Press Play. Arrow keys or WASD to move.";
 requestAnimationFrame(tick);
 </script>
 </body>

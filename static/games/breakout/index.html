@@ -107,8 +107,8 @@ function tick(ts) {
   const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
   lastTs = ts;
   if (alive) {
-    if (keys["arrowleft"])  paddleX -= 420 * dt;
-    if (keys["arrowright"]) paddleX += 420 * dt;
+    if (keys["arrowleft"] || keys["a"])  paddleX -= 420 * dt;
+    if (keys["arrowright"] || keys["d"]) paddleX += 420 * dt;
     paddleX = Math.max(0, Math.min(W - PADDLE_W, paddleX));
     if (!launched) {
       ball.x = paddleX + PADDLE_W / 2;

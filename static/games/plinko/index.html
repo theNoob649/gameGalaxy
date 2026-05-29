@@ -15,7 +15,7 @@
     <button class="game-btn primary" id="drop">Drop chip (10)</button>
     <button class="game-btn" id="auto">Auto x10</button>
   </div>
-  <canvas id="cv" width="500" height="560"></canvas>
+  <canvas id="cv" width="500" height="660"></canvas>
   <div class="game-message" id="msg">Click anywhere along the top to drop a chip.</div>
 </div>
 <script src="../_shared/gg.js"></script>
@@ -38,10 +38,11 @@ const autoBtn = document.getElementById("auto");
 const ROWS = 12;
 const PEG_R = 4;
 const BALL_R = 8;
-const PEG_GAP = 38;
+const PEG_GAP = 36;
 const BUCKETS = ROWS + 1;
-const TOP_Y = 60;
-const FLOOR_Y = TOP_Y + ROWS * PEG_GAP + 30;
+const TOP_Y = 40;
+const FLOOR_Y = TOP_Y + ROWS * PEG_GAP + 20;
+const BUCKET_H = H - FLOOR_Y;
 // Bucket payouts: high in the middle for misses, very high on edges for "jackpots"
 const PAYOUTS = [50, 12, 5, 2, 1, 0, 0, 0, 1, 2, 5, 12, 50];
 
@@ -160,14 +161,21 @@ function draw() {
   for (let i = 0; i < BUCKETS; i++) {
     const x = i * BUCKET_W;
     ctx.fillStyle = bucketColor(PAYOUTS[i]);
-    ctx.fillRect(x + 1, FLOOR_Y, BUCKET_W - 2, H - FLOOR_Y);
+    ctx.fillRect(x + 1, FLOOR_Y, BUCKET_W - 2, BUCKET_H);
+    // pin-stripe highlight
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.fillRect(x + 1, FLOOR_Y, BUCKET_W - 2, 4);
+    // payout label, bigger and centered in the bucket
     ctx.fillStyle = "white";
-    ctx.font = "bold 14px ui-sans-serif";
+    ctx.font = "bold 18px ui-sans-serif";
     ctx.textAlign = "center";
-    ctx.fillText("x" + PAYOUTS[i], x + BUCKET_W / 2, FLOOR_Y + 22);
+    ctx.textBaseline = "middle";
+    ctx.fillText("x" + PAYOUTS[i], x + BUCKET_W / 2, FLOOR_Y + BUCKET_H / 2);
+    ctx.textBaseline = "alphabetic";
   }
   // bucket walls
-  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  ctx.strokeStyle = "rgba(0,0,0,0.45)";
+  ctx.lineWidth = 1.5;
   for (let i = 0; i <= BUCKETS; i++) {
     const x = i * BUCKET_W;
     ctx.beginPath(); ctx.moveTo(x, FLOOR_Y); ctx.lineTo(x, H); ctx.stroke();

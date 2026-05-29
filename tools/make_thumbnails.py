@@ -771,6 +771,36 @@ async def play_word_search(page):
     await asyncio.sleep(0.15)
 
 
+async def play_roulette(page):
+    # Place a few chips on different bet types so the felt looks alive.
+    for key in ["red", "doz:2", "n:17", "n:23"]:
+        el = await page.query_selector(f'[data-key="{key}"]')
+        if el:
+            await el.click()
+            await asyncio.sleep(0.05)
+    # set a slight wheel rotation for visual interest
+    await page.evaluate("wheelAngle = 0.7; drawWheel();")
+    await asyncio.sleep(0.2)
+
+
+async def play_slot_machine(page):
+    # Set the reels to a near-jackpot triple by stuffing the strips directly
+    await page.evaluate("""() => {
+        const syms = ["7", "7", "🔔"];
+        for (let i = 0; i < 3; i++) {
+            const el = document.getElementById("r" + i);
+            const showSym = syms[i];
+            el.innerHTML = `
+                <div class="sm-sym">${symbolHtml('🍒')}</div>
+                <div class="sm-sym">${symbolHtml(showSym)}</div>
+                <div class="sm-sym">${symbolHtml('🍋')}</div>`;
+            el.style.transform = "translateY(0)";
+        }
+        bigWinEl.textContent = "Spin to win!";
+    }""")
+    await asyncio.sleep(0.1)
+
+
 # Map slug -> (selector_to_screenshot, action_fn)
 PLAYBOOKS = {
     "snake":               { "selector": "#cv",            "action": play_snake },
@@ -812,6 +842,8 @@ PLAYBOOKS = {
     "stick-hero":          { "selector": "#cv",            "action": play_stick_hero },
     "hangman":             { "selector": ".hm-stage",      "action": play_hangman },
     "word-search":         { "selector": ".ws-stage",      "action": play_word_search },
+    "roulette":            { "selector": ".rt-table",      "action": play_roulette },
+    "slot-machine":        { "selector": ".sm-cabinet",    "action": play_slot_machine },
     # chrome-dino is an external embed, no playbook
 }
 

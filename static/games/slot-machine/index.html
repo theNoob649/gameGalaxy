@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Slot Machine</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .sm-cabinet {
+    background: linear-gradient(180deg, #7c2d12, #431407);
+    border: 4px solid #fcd34d;
+    border-radius: 20px;
+    padding: 24px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5), inset 0 0 0 3px #b45309;
+  }
+  .sm-screen {
+    background: #0a0e1f;
+    border: 4px solid #fcd34d;
+    border-radius: 12px;
+    padding: 12px;
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .sm-reel {
+    width: 110px; height: 250px;
+    background: linear-gradient(180deg, #1e1b4b, #0a0e1f);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: inset 0 0 12px rgba(0,0,0,0.6);
+  }
+  .sm-strip {
+    position: absolute; left: 0; right: 0; top: 0;
+    will-change: transform;
+  }
+  .sm-sym {
+    height: 90px; display: grid; place-items: center;
+    font-size: 64px; user-select: none;
+  }
+  .sm-payline {
+    position: absolute; left: 0; right: 0;
+    top: 50%; transform: translateY(-50%);
+    height: 90px;
+    border-top: 2px solid #fcd34d;
+    border-bottom: 2px solid #fcd34d;
+    pointer-events: none;
+  }
+  .sm-controls { display: flex; gap: 8px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .sm-lever {
+    background: linear-gradient(180deg, #ef4444, #b91c1c);
+    color: white; font-weight: 800;
+    border: 0; border-radius: 999px;
+    padding: 14px 32px; font-size: 18px;
+    cursor: pointer;
+    box-shadow: 0 6px 0 #7f1d1d, 0 10px 20px rgba(0,0,0,0.4);
+  }
+  .sm-lever:hover { filter: brightness(1.05); }
+  .sm-lever:active { transform: translateY(4px); box-shadow: 0 2px 0 #7f1d1d, 0 6px 12px rgba(0,0,0,0.4); }
+  .sm-lever:disabled { opacity: 0.6; cursor: default; transform: none; }
+  .sm-bet { display: flex; gap: 4px; align-items: center; }
+  .sm-bet button {
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 10px;
+    border-radius: 6px; font: inherit; cursor: pointer;
+  }
+  .sm-bet button:hover { border-color: var(--accent); }
+  .sm-pay-table {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    margin-top: 14px;
+    color: var(--text-dim);
+  }
+  .sm-pay-table ul { list-style: none; padding: 0; margin: 4px 0 0; }
+  .sm-pay-table li { display: flex; justify-content: space-between; padding: 2px 0; }
+  .sm-pay-table strong { color: var(--text); }
+  .sm-bigwin {
+    font-size: 22px; font-weight: 800;
+    color: #fcd34d;
+    text-shadow: 0 0 12px rgba(252, 211, 77, 0.6);
+    min-height: 32px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Chips: <strong id="chips">1000</strong></span>
+    <span>Bet: <strong id="bet">10</strong></span>
+    <span>Last win: <strong id="lastWin">0</strong></span>
+    <span>Best: <strong id="best">1000</strong></span>
+  </div>
+  <div class="sm-cabinet">
+    <div class="sm-screen">
+      <div class="sm-reel"><div class="sm-strip" id="r0"></div><div class="sm-payline"></div></div>
+      <div class="sm-reel"><div class="sm-strip" id="r1"></div><div class="sm-payline"></div></div>
+      <div class="sm-reel"><div class="sm-strip" id="r2"></div><div class="sm-payline"></div></div>
+    </div>
+    <div class="sm-bigwin" id="bigWin"></div>
+    <div class="sm-controls">
+      <div class="sm-bet">
+        <button data-delta="-10">-10</button>
+        <button data-delta="-50">-50</button>
+        <span>Bet <strong id="betBig">10</strong></span>
+        <button data-delta="10">+10</button>
+        <button data-delta="50">+50</button>
+        <button id="max">Max</button>
+      </div>
+      <button class="sm-lever" id="spin">SPIN</button>
+    </div>
+    <div class="sm-pay-table">
+      <strong>Payouts</strong>
+      <ul>
+        <li><span>3x 7 . jackpot</span> <strong>x100</strong></li>
+        <li><span>3x BAR</span> <strong>x40</strong></li>
+        <li><span>3x bell</span> <strong>x20</strong></li>
+        <li><span>3x watermelon</span> <strong>x12</strong></li>
+        <li><span>3x orange</span> <strong>x8</strong></li>
+        <li><span>3x lemon</span> <strong>x5</strong></li>
+        <li><span>3x cherry</span> <strong>x3</strong></li>
+        <li><span>2x cherry (any reel)</span> <strong>x2</strong></li>
+      </ul>
+    </div>
+  </div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "slot-machine";
+const SYMBOLS = ["🍒","🍋","🍊","🍉","🔔","BAR","7"];
+const PAYOUTS = { "🍒": 3, "🍋": 5, "🍊": 8, "🍉": 12, "🔔": 20, "BAR": 40, "7": 100 };
+const WEIGHT = [12, 10, 8, 6, 4, 2, 1];  // probability weights; 7 is rarest
+
+let saved = GG.load(SLUG, { chips: 1000, best: 1000, spins: 0 }) || {};
+saved = Object.assign({ chips: 1000, best: 1000, spins: 0 }, saved);
+if (saved.chips <= 0) saved.chips = 1000;
+
+const chipsEl = document.getElementById("chips");
+const betEl = document.getElementById("bet");
+const betBigEl = document.getElementById("betBig");
+const lastWinEl = document.getElementById("lastWin");
+const bestEl = document.getElementById("best");
+const bigWinEl = document.getElementById("bigWin");
+const spinBtn = document.getElementById("spin");
+
+let bet = 10;
+chipsEl.textContent = saved.chips;
+betEl.textContent = bet;
+betBigEl.textContent = bet;
+bestEl.textContent = saved.best;
+lastWinEl.textContent = 0;
+
+function symbolHtml(sym) {
+  if (sym === "BAR") return '<span style="font-weight:800;font-size:34px;color:#fcd34d;">BAR</span>';
+  if (sym === "7")   return '<span style="font-weight:900;font-size:54px;color:#dc2626;">7</span>';
+  return sym;
+}
+
+function weightedPick() {
+  const total = WEIGHT.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < SYMBOLS.length; i++) {
+    r -= WEIGHT[i];
+    if (r < 0) return SYMBOLS[i];
+  }
+  return SYMBOLS[0];
+}
+
+function buildStrip(reelId, finalSym) {
+  // Build a long strip (lots of decoy symbols) ending with the final symbol
+  // in the middle-row position.
+  const el = document.getElementById(reelId);
+  const stripSyms = [];
+  for (let i = 0; i < 25; i++) stripSyms.push(weightedPick());
+  // ensure last 3 symbols include finalSym in position [-2] so it lands on the payline
+  stripSyms.push(weightedPick());
+  stripSyms.push(finalSym);
+  stripSyms.push(weightedPick());
+  el.innerHTML = stripSyms.map((s) => `<div class="sm-sym">${symbolHtml(s)}</div>`).join("");
+  el.style.transform = "translateY(0)";
+  return stripSyms.length;
+}
+
+function spinReel(reelId, finalSym, dur) {
+  return new Promise((resolve) => {
+    const count = buildStrip(reelId, finalSym);
+    const el = document.getElementById(reelId);
+    // The payline is centered vertically. To put the final symbol on the
+    // payline, we need to translate so that symbol[count-2] is centered.
+    const targetY = -((count - 2) * 90 - 80);
+    el.style.transition = `transform ${dur}ms cubic-bezier(.2,.6,.4,1)`;
+    requestAnimationFrame(() => {
+      el.style.transform = `translateY(${targetY}px)`;
+    });
+    setTimeout(resolve, dur + 30);
+  });
+}
+
+function adjustBet(delta) {
+  bet = Math.max(10, Math.min(saved.chips, bet + delta));
+  // round to nearest 10
+  bet = Math.floor(bet / 10) * 10;
+  if (bet < 10) bet = 10;
+  betEl.textContent = bet;
+  betBigEl.textContent = bet;
+}
+
+document.querySelectorAll('[data-delta]').forEach((b) =>
+  b.addEventListener("click", () => adjustBet(parseInt(b.dataset.delta, 10)))
+);
+document.getElementById("max").addEventListener("click", () => {
+  bet = Math.max(10, Math.floor(saved.chips / 10) * 10);
+  betEl.textContent = bet;
+  betBigEl.textContent = bet;
+});
+
+async function spin() {
+  if (saved.chips < bet) { bigWinEl.textContent = "Not enough chips."; return; }
+  saved.chips -= bet;
+  chipsEl.textContent = saved.chips;
+  saved.spins = (saved.spins || 0) + 1;
+  bigWinEl.textContent = "";
+  spinBtn.disabled = true;
+  const finals = [weightedPick(), weightedPick(), weightedPick()];
+  // Bias winning combos slightly more interesting: 1 in 8 force a 3-of-a-kind
+  if (Math.random() < 0.12) {
+    const sym = weightedPick();
+    finals[0] = finals[1] = finals[2] = sym;
+  }
+  await Promise.all([
+    spinReel("r0", finals[0], 1500),
+    spinReel("r1", finals[1], 1900),
+    spinReel("r2", finals[2], 2300),
+  ]);
+  // resolve
+  let win = 0;
+  let line = "";
+  if (finals[0] === finals[1] && finals[1] === finals[2]) {
+    const mult = PAYOUTS[finals[0]];
+    win = bet * mult;
+    line = `3x ${finals[0]} . ${mult}x`;
+  } else if (finals.filter((s) => s === "🍒").length >= 2) {
+    win = bet * 2;
+    line = "2x cherry . 2x";
+  }
+  lastWinEl.textContent = win;
+  saved.chips += win;
+  if (saved.chips > saved.best) saved.best = saved.chips;
+  chipsEl.textContent = saved.chips;
+  bestEl.textContent = saved.best;
+  bigWinEl.textContent = win > 0 ? `${line} . +${win}` : "";
+  GG.save(SLUG, saved);
+  if (win >= 1000 && window.GG && GG.youWin) GG.youWin("Jackpot!", `+${win} chips on a single spin.`);
+  if (saved.chips <= 0) {
+    if (window.GG && GG.youLose) GG.youLose("You Lose", "Bankroll busted. Reset to 1000 chips.");
+    saved.chips = 1000;
+    chipsEl.textContent = saved.chips;
+    GG.save(SLUG, saved);
+  }
+  spinBtn.disabled = false;
+}
+
+spinBtn.addEventListener("click", spin);
+
+// init reels at rest
+for (const id of ["r0","r1","r2"]) {
+  const el = document.getElementById(id);
+  el.innerHTML = ["🍒","🍋","🍊"].map((s) => `<div class="sm-sym">${symbolHtml(s)}</div>`).join("");
+}
+</script>
+</body>
+</html>

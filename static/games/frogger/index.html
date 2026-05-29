@@ -91,11 +91,12 @@ function resetFrog() {
 
 window.addEventListener("keydown", (e) => {
   if (!alive) return;
+  const k = e.key.toLowerCase();
   let moved = false;
-  if (e.key === "ArrowUp")    { frog.row++; moved = true; }
-  if (e.key === "ArrowDown")  { frog.row = Math.max(0, frog.row - 1); moved = true; }
-  if (e.key === "ArrowLeft")  { frog.col = Math.max(0, frog.col - 1); moved = true; }
-  if (e.key === "ArrowRight") { frog.col = Math.min(COLS - 1, frog.col + 1); moved = true; }
+  if (k === "arrowup" || k === "w")    { frog.row++; moved = true; }
+  if (k === "arrowdown" || k === "s")  { frog.row = Math.max(0, frog.row - 1); moved = true; }
+  if (k === "arrowleft" || k === "a")  { frog.col = Math.max(0, frog.col - 1); moved = true; }
+  if (k === "arrowright" || k === "d") { frog.col = Math.min(COLS - 1, frog.col + 1); moved = true; }
   if (moved) {
     e.preventDefault();
     if (frog.row >= 12) {

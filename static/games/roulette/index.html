@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Roulette</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .rt-table { display: flex; gap: 24px; align-items: flex-start; }
+  .rt-wheel-wrap {
+    background: #14532d;
+    padding: 14px;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+  .rt-board {
+    background: #052e16;
+    border: 2px solid #064e3b;
+    border-radius: 12px;
+    padding: 12px;
+    min-width: 460px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+  .rt-numbers {
+    display: grid;
+    grid-template-columns: 30px repeat(12, 1fr);
+    gap: 3px;
+    margin-bottom: 8px;
+  }
+  .rt-zero {
+    grid-row: span 3;
+    background: #059669; color: white;
+    display: grid; place-items: center; font-weight: 800;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .rt-num {
+    background: #7f1d1d; color: white;
+    display: grid; place-items: center;
+    font-weight: 700; padding: 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+  }
+  .rt-num.black { background: #1f2937; }
+  .rt-num.selected, .rt-zero.selected { outline: 3px solid #fcd34d; outline-offset: -3px; }
+  .rt-num .chip, .rt-zero .chip,
+  .rt-side .chip, .rt-bottom .chip {
+    position: absolute; top: 2px; right: 2px;
+    background: #fcd34d; color: #1a1a1a;
+    border-radius: 999px;
+    padding: 0 4px; font-size: 9px; font-weight: 800;
+  }
+  .rt-bottom {
+    display: grid; grid-template-columns: 30px repeat(3, 1fr) repeat(3, 1fr) repeat(3, 1fr);
+    gap: 3px; margin-top: 3px;
+  }
+  .rt-cell {
+    background: #064e3b; color: white;
+    display: grid; place-items: center;
+    padding: 6px 4px; font-size: 11px; font-weight: 700;
+    border-radius: 4px; cursor: pointer;
+    text-align: center;
+    position: relative;
+  }
+  .rt-cell.red { background: #7f1d1d; }
+  .rt-cell.black { background: #1f2937; }
+  .rt-cell.selected { outline: 3px solid #fcd34d; outline-offset: -3px; }
+  .rt-spinning canvas { animation: rt-spin 2s cubic-bezier(.2,.6,.4,1); }
+  .rt-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .rt-result {
+    font-size: 14px; color: #fcd34d; font-weight: 700;
+    min-height: 1.4em;
+  }
+  .rt-chip-btn {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px; border-radius: 999px;
+    font: inherit; font-size: 12px;
+    cursor: pointer;
+  }
+  .rt-chip-btn.active { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Chips: <strong id="chips">1000</strong></span>
+    <span>Total bet: <strong id="totalBet">0</strong></span>
+    <span>Last win: <strong id="lastWin">0</strong></span>
+    <span>Best: <strong id="best">1000</strong></span>
+  </div>
+  <div class="rt-table">
+    <div class="rt-wheel-wrap">
+      <canvas id="wheel" width="220" height="220"></canvas>
+      <div class="rt-result" id="result" style="text-align: center; margin-top: 10px;">Place your bets.</div>
+    </div>
+    <div class="rt-board">
+      <div class="rt-numbers" id="numbersGrid"></div>
+      <div class="rt-bottom" id="bottomGrid"></div>
+      <div class="rt-controls" style="margin-top: 12px;">
+        <span style="font-size: 12px; color: rgba(255,255,255,0.6);">Chip:</span>
+        <button class="rt-chip-btn active" data-chip="10">10</button>
+        <button class="rt-chip-btn" data-chip="25">25</button>
+        <button class="rt-chip-btn" data-chip="50">50</button>
+        <button class="rt-chip-btn" data-chip="100">100</button>
+        <button class="game-btn primary" id="spin">Spin</button>
+        <button class="game-btn" id="clear">Clear bets</button>
+      </div>
+    </div>
+  </div>
+  <div class="game-message" id="msg">Click a number, color, or row to place a bet. Spin to find out.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "roulette";
+// European wheel order
+const WHEEL_ORDER = [0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+const RED_NUMBERS = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+
+let saved = GG.load(SLUG, { chips: 1000, best: 1000, spins: 0 }) || {};
+saved = Object.assign({ chips: 1000, best: 1000, spins: 0 }, saved);
+if (saved.chips <= 0) saved.chips = 1000;
+
+const chipsEl = document.getElementById("chips");
+const totalBetEl = document.getElementById("totalBet");
+const lastWinEl = document.getElementById("lastWin");
+const bestEl = document.getElementById("best");
+const numsEl = document.getElementById("numbersGrid");
+const bottomEl = document.getElementById("bottomGrid");
+const resultEl = document.getElementById("result");
+const msgEl = document.getElementById("msg");
+const wheelCv = document.getElementById("wheel");
+const wctx = wheelCv.getContext("2d");
+
+let chipSize = 10;
+let bets = {};   // key -> amount
+let spinning = false;
+let wheelAngle = 0;
+let lastWinAmount = 0;
+
+chipsEl.textContent = saved.chips;
+bestEl.textContent = saved.best;
+
+function buildBoard() {
+  // numbers grid: zero + 12 columns of 3 rows
+  numsEl.innerHTML = "";
+  const zero = document.createElement("div");
+  zero.className = "rt-zero";
+  zero.dataset.key = "n:0";
+  zero.textContent = "0";
+  numsEl.appendChild(zero);
+  zero.addEventListener("click", () => placeBet("n:0"));
+  for (let row = 2; row >= 0; row--) {
+    for (let col = 0; col < 12; col++) {
+      const n = col * 3 + (3 - row);
+      const el = document.createElement("div");
+      el.className = "rt-num " + (RED_NUMBERS.has(n) ? "red" : "black");
+      el.dataset.key = "n:" + n;
+      el.textContent = n;
+      el.addEventListener("click", () => placeBet("n:" + n));
+      numsEl.appendChild(el);
+    }
+  }
+  // bottom row: dozens + outside bets
+  bottomEl.innerHTML = "";
+  const placeholder = document.createElement("div");
+  bottomEl.appendChild(placeholder);
+  const cells = [
+    { key: "doz:1",  label: "1-12" },
+    { key: "doz:2",  label: "13-24" },
+    { key: "doz:3",  label: "25-36" },
+    { key: "low",    label: "1-18" },
+    { key: "even",   label: "EVEN" },
+    { key: "red",    label: "RED",   cls: "red" },
+    { key: "black",  label: "BLACK", cls: "black" },
+    { key: "odd",    label: "ODD" },
+    { key: "high",   label: "19-36" },
+  ];
+  for (const c of cells) {
+    const el = document.createElement("div");
+    el.className = "rt-cell" + (c.cls ? " " + c.cls : "");
+    el.dataset.key = c.key;
+    el.textContent = c.label;
+    el.addEventListener("click", () => placeBet(c.key));
+    bottomEl.appendChild(el);
+  }
+}
+
+function placeBet(key) {
+  if (spinning) return;
+  if (saved.chips < chipSize) { msgEl.textContent = "Not enough chips for that bet."; return; }
+  saved.chips -= chipSize;
+  bets[key] = (bets[key] || 0) + chipSize;
+  chipsEl.textContent = saved.chips;
+  renderBets();
+}
+
+function renderBets() {
+  // clear chip badges
+  for (const el of document.querySelectorAll(".chip")) el.remove();
+  let total = 0;
+  for (const [key, amt] of Object.entries(bets)) {
+    total += amt;
+    const el = document.querySelector(`[data-key="${key}"]`);
+    if (el) {
+      const chip = document.createElement("div");
+      chip.className = "chip";
+      chip.textContent = amt;
+      el.appendChild(chip);
+    }
+  }
+  totalBetEl.textContent = total;
+}
+
+function payoutFor(num, key) {
+  const color = num === 0 ? null : (RED_NUMBERS.has(num) ? "red" : "black");
+  if (key === "n:" + num) return 36;       // 35:1 + stake
+  if (num === 0) return 0;
+  if (key === "red"  && color === "red")   return 2;
+  if (key === "black" && color === "black") return 2;
+  if (key === "even" && num % 2 === 0)     return 2;
+  if (key === "odd"  && num % 2 === 1)     return 2;
+  if (key === "low"  && num >= 1 && num <= 18)  return 2;
+  if (key === "high" && num >= 19 && num <= 36) return 2;
+  if (key === "doz:1" && num >= 1  && num <= 12) return 3;
+  if (key === "doz:2" && num >= 13 && num <= 24) return 3;
+  if (key === "doz:3" && num >= 25 && num <= 36) return 3;
+  return 0;
+}
+
+function spin() {
+  if (spinning) return;
+  const totalBet = Object.values(bets).reduce((a, b) => a + b, 0);
+  if (totalBet === 0) { msgEl.textContent = "Place a bet first."; return; }
+  spinning = true;
+  saved.spins = (saved.spins || 0) + 1;
+  const targetIdx = Math.floor(Math.random() * WHEEL_ORDER.length);
+  const targetNum = WHEEL_ORDER[targetIdx];
+  const slice = (Math.PI * 2) / WHEEL_ORDER.length;
+  const targetAngle = -targetIdx * slice;
+  // spin several full turns then land on target
+  const totalRotation = Math.PI * 2 * 6 + targetAngle;
+  const start = performance.now();
+  const dur = 3200;
+  const startAngle = wheelAngle;
+  function frame(now) {
+    const t = Math.min(1, (now - start) / dur);
+    const eased = 1 - Math.pow(1 - t, 3);
+    wheelAngle = startAngle + (totalRotation - startAngle) * eased;
+    drawWheel();
+    if (t < 1) requestAnimationFrame(frame);
+    else resolveSpin(targetNum);
+  }
+  requestAnimationFrame(frame);
+}
+
+function resolveSpin(num) {
+  let win = 0;
+  for (const [key, amt] of Object.entries(bets)) {
+    const mult = payoutFor(num, key);
+    if (mult > 0) win += amt * mult;
+  }
+  saved.chips += win;
+  lastWinAmount = win;
+  lastWinEl.textContent = win;
+  if (saved.chips > saved.best) saved.best = saved.chips;
+  bestEl.textContent = saved.best;
+  chipsEl.textContent = saved.chips;
+  const colorWord = num === 0 ? "GREEN" : (RED_NUMBERS.has(num) ? "RED" : "BLACK");
+  const totalBet = Object.values(bets).reduce((a, b) => a + b, 0);
+  resultEl.textContent = `${num} ${colorWord} . ${win > 0 ? "Won " + win : "Lost " + totalBet}`;
+  msgEl.textContent = win > 0 ? `You won ${win} chips!` : `House wins. Place new bets.`;
+  bets = {};
+  renderBets();
+  spinning = false;
+  GG.save(SLUG, saved);
+  if (saved.chips <= 0) {
+    if (window.GG && GG.youLose) GG.youLose("You Lose", "Bankroll busted. Reset to 1000 chips.");
+    saved.chips = 1000; chipsEl.textContent = saved.chips;
+    GG.save(SLUG, saved);
+  } else if (win >= 1000 && window.GG && GG.youWin) {
+    GG.youWin("Big Win!", `+${win} chips on a single spin.`);
+  }
+}
+
+function drawWheel() {
+  const cx = wheelCv.width / 2;
+  const cy = wheelCv.height / 2;
+  const R = cx - 6;
+  wctx.clearRect(0, 0, wheelCv.width, wheelCv.height);
+  wctx.save();
+  wctx.translate(cx, cy);
+  wctx.rotate(wheelAngle);
+  const slice = (Math.PI * 2) / WHEEL_ORDER.length;
+  for (let i = 0; i < WHEEL_ORDER.length; i++) {
+    const n = WHEEL_ORDER[i];
+    const a0 = i * slice;
+    const a1 = (i + 1) * slice;
+    wctx.fillStyle = n === 0 ? "#059669" : (RED_NUMBERS.has(n) ? "#dc2626" : "#1f2937");
+    wctx.beginPath();
+    wctx.moveTo(0, 0);
+    wctx.arc(0, 0, R, a0, a1);
+    wctx.closePath();
+    wctx.fill();
+    // number label
+    wctx.save();
+    wctx.rotate(a0 + slice / 2);
+    wctx.fillStyle = "white";
+    wctx.font = "bold 10px ui-sans-serif";
+    wctx.textAlign = "right";
+    wctx.fillText(String(n), R - 4, 4);
+    wctx.restore();
+  }
+  // hub
+  wctx.fillStyle = "#fcd34d";
+  wctx.beginPath(); wctx.arc(0, 0, 14, 0, Math.PI * 2); wctx.fill();
+  wctx.restore();
+  // pointer at the top
+  wctx.fillStyle = "#fcd34d";
+  wctx.beginPath();
+  wctx.moveTo(cx - 8, 4);
+  wctx.lineTo(cx + 8, 4);
+  wctx.lineTo(cx, 18);
+  wctx.closePath(); wctx.fill();
+}
+
+document.querySelectorAll(".rt-chip-btn").forEach((b) => {
+  b.addEventListener("click", () => {
+    chipSize = parseInt(b.dataset.chip, 10);
+    document.querySelectorAll(".rt-chip-btn").forEach((x) => x.classList.toggle("active", x === b));
+  });
+});
+document.getElementById("spin").addEventListener("click", spin);
+document.getElementById("clear").addEventListener("click", () => {
+  if (spinning) return;
+  const total = Object.values(bets).reduce((a, b) => a + b, 0);
+  saved.chips += total;
+  bets = {};
+  chipsEl.textContent = saved.chips;
+  renderBets();
+});
+
+buildBoard();
+renderBets();
+drawWheel();
+</script>
+</body>
+</html>
