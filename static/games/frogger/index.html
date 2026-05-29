@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Frogger</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <span>Lives: <strong id="lives">3</strong></span>
+    <span>Time: <strong id="time">30</strong>s</span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="520" height="560"></canvas>
+  <div class="game-message" id="msg">Arrow keys to hop. Cross the road and the river.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "frogger";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const ROWS = 14;
+const CELL = H / ROWS;
+const COLS = W / CELL;
+
+let saved = GG.load(SLUG, { best: 0 }) || { best: 0 };
+saved = Object.assign({ best: 0 }, saved);
+
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const livesEl = document.getElementById("lives");
+const timeEl = document.getElementById("time");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+bestEl.textContent = saved.best;
+
+let frog, lanes, score, lives, alive, timeLeft, level, goals, ridingLog;
+
+function makeLanes() {
+  // Rows from bottom to top: bottom is row 0 (start/safe), row 13 is top (goals).
+  // 0: start grass, 1-5: road, 6: median, 7-11: river, 12: goal grass, 13: scenery
+  lanes = [];
+  for (let row = 0; row < ROWS; row++) {
+    let kind = "grass";
+    if (row >= 1 && row <= 5) kind = "road";
+    else if (row === 6) kind = "median";
+    else if (row >= 7 && row <= 11) kind = "river";
+    else if (row === 12) kind = "goal";
+    lanes.push({ row, kind, items: [], dir: row % 2 ? 1 : -1, speed: 60 + Math.random() * 60 + level * 8 });
+    // populate
+    if (kind === "road") {
+      const count = 2 + Math.floor(Math.random() * 2);
+      const w = CELL * (1.2 + Math.random() * 0.6);
+      for (let i = 0; i < count; i++) {
+        lanes[row].items.push({ x: (W / count) * i + Math.random() * 80, w });
+      }
+    } else if (kind === "river") {
+      const count = 2 + Math.floor(Math.random() * 2);
+      const w = CELL * (2 + Math.random() * 1.2);
+      for (let i = 0; i < count; i++) {
+        lanes[row].items.push({ x: (W / count) * i + Math.random() * 80, w });
+      }
+    }
+  }
+  goals = [];
+  for (let i = 0; i < 5; i++) {
+    goals.push({ x: CELL * 0.6 + i * (W / 5), reached: false });
+  }
+}
+
+function newGame() {
+  frog = { col: Math.floor(COLS / 2), row: 0 };
+  score = 0; lives = 3; alive = true;
+  timeLeft = 30; level = 1;
+  scoreEl.textContent = 0;
+  livesEl.textContent = 3;
+  timeEl.textContent = 30;
+  msgEl.textContent = "Reach the goals. Avoid cars, ride logs.";
+  makeLanes();
+}
+
+function resetFrog() {
+  frog = { col: Math.floor(COLS / 2), row: 0 };
+  timeLeft = 30;
+}
+
+window.addEventListener("keydown", (e) => {
+  if (!alive) return;
+  let moved = false;
+  if (e.key === "ArrowUp")    { frog.row++; moved = true; }
+  if (e.key === "ArrowDown")  { frog.row = Math.max(0, frog.row - 1); moved = true; }
+  if (e.key === "ArrowLeft")  { frog.col = Math.max(0, frog.col - 1); moved = true; }
+  if (e.key === "ArrowRight") { frog.col = Math.min(COLS - 1, frog.col + 1); moved = true; }
+  if (moved) {
+    e.preventDefault();
+    if (frog.row >= 12) {
+      // check goal slot
+      const fx = frog.col * CELL + CELL / 2;
+      const slot = goals.findIndex((g) => !g.reached && Math.abs(g.x - fx) < CELL * 0.9);
+      if (slot >= 0) {
+        goals[slot].reached = true;
+        score += 50 + Math.floor(timeLeft);
+        scoreEl.textContent = score;
+        if (goals.every((g) => g.reached)) winLevel();
+        else resetFrog();
+      } else {
+        die();
+      }
+    }
+  }
+});
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  if (alive) {
+    timeLeft -= dt;
+    timeEl.textContent = Math.max(0, Math.ceil(timeLeft));
+    if (timeLeft <= 0) return die();
+    ridingLog = null;
+    for (const lane of lanes) {
+      for (const it of lane.items) {
+        it.x += lane.speed * lane.dir * dt;
+        // wrap
+        if (lane.dir > 0 && it.x > W + 10) it.x = -it.w - 10;
+        if (lane.dir < 0 && it.x < -it.w - 10) it.x = W + 10;
+      }
+    }
+    // current lane
+    const lane = lanes[frog.row];
+    const fx = frog.col * CELL + CELL / 2;
+    const fy = H - (frog.row + 0.5) * CELL;
+    if (lane.kind === "road") {
+      for (const car of lane.items) {
+        if (fx > car.x && fx < car.x + car.w) return die();
+      }
+    } else if (lane.kind === "river") {
+      let onLog = false;
+      for (const log of lane.items) {
+        if (fx > log.x && fx < log.x + log.w) {
+          onLog = true;
+          // drift with the log
+          frog.col += (lane.speed * lane.dir * dt) / CELL;
+          frog.col = Math.max(0, Math.min(COLS - 1, frog.col));
+          break;
+        }
+      }
+      if (!onLog) return die();
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function winLevel() {
+  level++;
+  score += 200;
+  scoreEl.textContent = score;
+  msgEl.textContent = `Level ${level}!`;
+  makeLanes();
+  resetFrog();
+}
+
+function die() {
+  lives--;
+  livesEl.textContent = lives;
+  if (lives <= 0) {
+    alive = false;
+    if (score > saved.best) { saved.best = score; bestEl.textContent = score; }
+    GG.save(SLUG, saved);
+    msgEl.textContent = `Game over. Score ${score}.`;
+    if (window.GG && GG.youLose) GG.youLose("You Lose", `Score ${score}.`);
+    return;
+  }
+  resetFrog();
+}
+
+function draw() {
+  for (const lane of lanes) {
+    const y = H - (lane.row + 1) * CELL;
+    if (lane.kind === "grass" || lane.kind === "goal") ctx.fillStyle = "#14532d";
+    else if (lane.kind === "road")    ctx.fillStyle = "#1f2937";
+    else if (lane.kind === "median")  ctx.fillStyle = "#4d7c0f";
+    else if (lane.kind === "river")   ctx.fillStyle = "#1e3a8a";
+    ctx.fillRect(0, y, W, CELL);
+    if (lane.kind === "road") {
+      ctx.strokeStyle = "#fcd34d";
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath();
+      ctx.moveTo(0, y + CELL / 2); ctx.lineTo(W, y + CELL / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      for (const car of lane.items) {
+        ctx.fillStyle = "#fb7185";
+        ctx.fillRect(car.x, y + 6, car.w, CELL - 12);
+        ctx.fillStyle = "#fcd34d";
+        ctx.fillRect(car.x + (lane.dir > 0 ? car.w - 6 : 0), y + 10, 6, 6);
+      }
+    } else if (lane.kind === "river") {
+      for (const log of lane.items) {
+        ctx.fillStyle = "#a16207";
+        ctx.fillRect(log.x, y + 6, log.w, CELL - 12);
+        ctx.fillStyle = "rgba(0,0,0,0.3)";
+        ctx.fillRect(log.x, y + 6, log.w, 4);
+      }
+    } else if (lane.kind === "goal") {
+      for (const g of goals) {
+        ctx.fillStyle = g.reached ? "#34d399" : "#0a0e1f";
+        ctx.fillRect(g.x - CELL * 0.4, y + 6, CELL * 0.8, CELL - 12);
+      }
+    }
+  }
+  // frog
+  const fx = frog.col * CELL + CELL / 2;
+  const fy = H - (frog.row + 0.5) * CELL;
+  ctx.fillStyle = "#22c55e";
+  ctx.beginPath(); ctx.arc(fx, fy, CELL * 0.35, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "#052e16";
+  ctx.beginPath(); ctx.arc(fx - 5, fy - 4, 3, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(fx + 5, fy - 4, 3, 0, Math.PI * 2); ctx.fill();
+}
+
+playBtn.addEventListener("click", () => { newGame(); playBtn.textContent = "Restart"; });
+newGame();
+alive = false;
+msgEl.textContent = "Press Play. Arrow keys to hop.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

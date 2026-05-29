@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Breakout</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <span>Lives: <strong id="lives">3</strong></span>
+    <span>Level: <strong id="level">1</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="560" height="480"></canvas>
+  <div class="game-message" id="msg">Move with mouse or arrow keys. Click to launch.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "breakout";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const PADDLE_W = 100, PADDLE_H = 12;
+const BRICK_ROWS = 6, BRICK_COLS = 10;
+const BRICK_W = (W - 40) / BRICK_COLS;
+const BRICK_H = 22;
+const BRICK_X = 20, BRICK_Y = 50;
+
+let saved = GG.load(SLUG, { best: 0 }) || { best: 0 };
+saved = Object.assign({ best: 0 }, saved);
+
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const livesEl = document.getElementById("lives");
+const levelEl = document.getElementById("level");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+
+let paddleX, ball, bricks, score, lives, level, alive, launched;
+bestEl.textContent = saved.best;
+
+const keys = {};
+window.addEventListener("keydown", (e) => { keys[e.key.toLowerCase()] = true; });
+window.addEventListener("keyup",   (e) => { keys[e.key.toLowerCase()] = false; });
+cv.addEventListener("mousemove", (e) => {
+  const rect = cv.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) * cv.width / rect.width;
+  if (alive) paddleX = Math.max(0, Math.min(W - PADDLE_W, mx - PADDLE_W / 2));
+});
+cv.addEventListener("click", () => { if (alive && !launched) launchBall(); });
+window.addEventListener("keydown", (e) => { if (e.key === " " && alive && !launched) { e.preventDefault(); launchBall(); }});
+
+function makeBricks() {
+  bricks = [];
+  const colors = ["#ef4444", "#f59e0b", "#fcd34d", "#34d399", "#60a5fa", "#a78bfa"];
+  for (let r = 0; r < BRICK_ROWS; r++) {
+    for (let c = 0; c < BRICK_COLS; c++) {
+      bricks.push({
+        x: BRICK_X + c * BRICK_W,
+        y: BRICK_Y + r * BRICK_H,
+        w: BRICK_W - 2,
+        h: BRICK_H - 2,
+        hp: r < 2 ? 2 : 1, // top rows take 2 hits
+        color: colors[r],
+        score: (BRICK_ROWS - r) * 10,
+      });
+    }
+  }
+}
+
+function newGame() {
+  paddleX = (W - PADDLE_W) / 2;
+  score = 0; lives = 3; level = 1; alive = true; launched = false;
+  scoreEl.textContent = 0;
+  livesEl.textContent = 3;
+  levelEl.textContent = 1;
+  msgEl.textContent = "Move with mouse or arrows. Click or space to launch.";
+  makeBricks();
+  resetBall();
+}
+
+function resetBall() {
+  ball = {
+    x: paddleX + PADDLE_W / 2,
+    y: H - 30,
+    vx: 0, vy: 0,
+    r: 7,
+  };
+  launched = false;
+}
+
+function launchBall() {
+  if (launched) return;
+  const angle = (-Math.PI / 2) + (Math.random() - 0.5) * 0.6;
+  const speed = 320 + level * 20;
+  ball.vx = Math.cos(angle) * speed;
+  ball.vy = Math.sin(angle) * speed;
+  launched = true;
+}
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  if (alive) {
+    if (keys["arrowleft"])  paddleX -= 420 * dt;
+    if (keys["arrowright"]) paddleX += 420 * dt;
+    paddleX = Math.max(0, Math.min(W - PADDLE_W, paddleX));
+    if (!launched) {
+      ball.x = paddleX + PADDLE_W / 2;
+      ball.y = H - 30;
+    } else {
+      ball.x += ball.vx * dt;
+      ball.y += ball.vy * dt;
+      if (ball.x - ball.r < 0)  { ball.x = ball.r;     ball.vx = Math.abs(ball.vx); }
+      if (ball.x + ball.r > W)  { ball.x = W - ball.r; ball.vx = -Math.abs(ball.vx); }
+      if (ball.y - ball.r < 0)  { ball.y = ball.r;     ball.vy = Math.abs(ball.vy); }
+      // paddle
+      if (ball.y + ball.r > H - 30 && ball.y < H - 18 && ball.x > paddleX && ball.x < paddleX + PADDLE_W && ball.vy > 0) {
+        const off = ((ball.x - (paddleX + PADDLE_W / 2)) / (PADDLE_W / 2));
+        const angle = -Math.PI / 2 + off * 0.9;
+        const speed = Math.hypot(ball.vx, ball.vy) * 1.02;
+        ball.vx = Math.cos(angle) * speed;
+        ball.vy = Math.sin(angle) * speed;
+      }
+      // bricks
+      for (const b of bricks.slice()) {
+        if (ball.x + ball.r > b.x && ball.x - ball.r < b.x + b.w &&
+            ball.y + ball.r > b.y && ball.y - ball.r < b.y + b.h) {
+          b.hp--;
+          if (b.hp <= 0) {
+            score += b.score;
+            scoreEl.textContent = score;
+            bricks.splice(bricks.indexOf(b), 1);
+          }
+          // bounce based on shallowest penetration
+          const overlapX = Math.min(ball.x + ball.r - b.x, b.x + b.w - (ball.x - ball.r));
+          const overlapY = Math.min(ball.y + ball.r - b.y, b.y + b.h - (ball.y - ball.r));
+          if (overlapX < overlapY) ball.vx = -ball.vx;
+          else ball.vy = -ball.vy;
+          break;
+        }
+      }
+      // dropped off the bottom
+      if (ball.y > H + 20) {
+        lives--;
+        livesEl.textContent = lives;
+        if (lives <= 0) return die();
+        resetBall();
+      }
+      // cleared
+      if (bricks.length === 0) nextLevel();
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function die() {
+  alive = false;
+  if (score > saved.best) { saved.best = score; bestEl.textContent = score; }
+  GG.save(SLUG, saved);
+  msgEl.textContent = `Game over. Score: ${score}.`;
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Score ${score}.`);
+}
+
+function nextLevel() {
+  level++;
+  levelEl.textContent = level;
+  msgEl.textContent = `Level ${level}!`;
+  makeBricks();
+  resetBall();
+  if (level >= 6) {
+    // call it a win after 5 cleared levels
+    if (window.GG && GG.youWin) GG.youWin("You Win!", `Cleared 5 levels with ${score} points.`);
+  }
+}
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  // bricks
+  for (const b of bricks) {
+    ctx.fillStyle = b.color;
+    if (b.hp > 1) {
+      ctx.fillStyle = "#fcd34d";
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillStyle = b.color;
+      ctx.fillRect(b.x + 2, b.y + 2, b.w - 4, b.h - 4);
+    } else {
+      ctx.fillRect(b.x, b.y, b.w, b.h);
+    }
+    ctx.fillStyle = "rgba(255,255,255,0.2)";
+    ctx.fillRect(b.x, b.y, b.w, 3);
+  }
+  // paddle
+  ctx.fillStyle = "#7c5cff";
+  ctx.fillRect(paddleX, H - 30, PADDLE_W, PADDLE_H);
+  ctx.fillStyle = "rgba(255,255,255,0.3)";
+  ctx.fillRect(paddleX, H - 30, PADDLE_W, 3);
+  // ball
+  ctx.fillStyle = "#fcd34d";
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2); ctx.fill();
+}
+
+playBtn.addEventListener("click", () => { newGame(); playBtn.textContent = "Restart"; });
+newGame();
+alive = false;
+msgEl.textContent = "Press Play to start.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

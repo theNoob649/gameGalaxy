@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Space Invaders</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <span>Lives: <strong id="lives">3</strong></span>
+    <span>Wave: <strong id="wave">1</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="560" height="520"></canvas>
+  <div class="game-message" id="msg">Arrow keys to move, space to shoot.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "space-invaders";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+
+let saved = GG.load(SLUG, { best: 0 }) || { best: 0 };
+saved = Object.assign({ best: 0 }, saved);
+
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const livesEl = document.getElementById("lives");
+const waveEl = document.getElementById("wave");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+bestEl.textContent = saved.best;
+
+const keys = {};
+window.addEventListener("keydown", (e) => {
+  keys[e.key.toLowerCase()] = true;
+  if (["arrowleft","arrowright"," "].includes(e.key.toLowerCase())) e.preventDefault();
+});
+window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
+
+let ship, aliens, alienVx, alienStepDown, bullets, alienBullets, score, lives, wave, alive, cooldown;
+
+function makeAliens(w) {
+  aliens = [];
+  const cols = 10, rows = 4;
+  const cellW = 38, cellH = 30;
+  const startX = (W - cols * cellW) / 2;
+  const startY = 50;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      aliens.push({
+        x: startX + c * cellW,
+        y: startY + r * cellH,
+        w: 26, h: 18,
+        color: r === 0 ? "#ec4899" : r === 1 ? "#a78bfa" : r === 2 ? "#60a5fa" : "#34d399",
+        score: (rows - r) * 10,
+      });
+    }
+  }
+  alienVx = 30 + (w - 1) * 8;
+  alienStepDown = 18;
+}
+
+function newGame() {
+  ship = { x: W / 2, y: H - 50, w: 36, h: 14, color: "#fcd34d" };
+  bullets = []; alienBullets = [];
+  score = 0; lives = 3; wave = 1; alive = true; cooldown = 0;
+  scoreEl.textContent = 0;
+  livesEl.textContent = lives;
+  waveEl.textContent = wave;
+  msgEl.textContent = "Arrow keys to move, space to shoot.";
+  makeAliens(wave);
+}
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  if (alive) {
+    if (keys["arrowleft"])  ship.x = Math.max(ship.w / 2, ship.x - 320 * dt);
+    if (keys["arrowright"]) ship.x = Math.min(W - ship.w / 2, ship.x + 320 * dt);
+    cooldown -= dt;
+    if (keys[" "] && cooldown <= 0) {
+      bullets.push({ x: ship.x, y: ship.y - 10, vy: -480 });
+      cooldown = 0.35;
+    }
+    // move bullets
+    for (const b of bullets.slice()) {
+      b.y += b.vy * dt;
+      if (b.y < -10) bullets.splice(bullets.indexOf(b), 1);
+    }
+    for (const b of alienBullets.slice()) {
+      b.y += b.vy * dt;
+      if (b.y > H + 10) alienBullets.splice(alienBullets.indexOf(b), 1);
+    }
+    // move aliens
+    let edgeHit = false;
+    for (const a of aliens) {
+      a.x += alienVx * dt;
+      if (a.x - a.w / 2 < 6 || a.x + a.w / 2 > W - 6) edgeHit = true;
+    }
+    if (edgeHit) {
+      alienVx = -alienVx;
+      for (const a of aliens) a.y += alienStepDown;
+    }
+    // alien shots: speed up as their count drops
+    const shooters = aliens.filter((a) => a.y < H - 80);
+    const shotRate = 0.4 + (40 - aliens.length) * 0.06;
+    if (shooters.length && Math.random() < shotRate * dt) {
+      const shooter = shooters[Math.floor(Math.random() * shooters.length)];
+      alienBullets.push({ x: shooter.x, y: shooter.y + shooter.h, vy: 220 });
+    }
+    // bullet-alien
+    for (const b of bullets.slice()) {
+      for (const a of aliens.slice()) {
+        if (Math.abs(b.x - a.x) < a.w / 2 && Math.abs(b.y - a.y) < a.h / 2) {
+          aliens.splice(aliens.indexOf(a), 1);
+          bullets.splice(bullets.indexOf(b), 1);
+          score += a.score;
+          scoreEl.textContent = score;
+          break;
+        }
+      }
+    }
+    // alien-ship
+    for (const b of alienBullets.slice()) {
+      if (Math.abs(b.x - ship.x) < ship.w / 2 && Math.abs(b.y - ship.y) < ship.h / 2) {
+        alienBullets.splice(alienBullets.indexOf(b), 1);
+        lives--;
+        livesEl.textContent = lives;
+        if (lives <= 0) return die();
+      }
+    }
+    // aliens reach the bottom
+    for (const a of aliens) {
+      if (a.y + a.h / 2 > H - 30) return die();
+    }
+    if (aliens.length === 0) {
+      wave++;
+      waveEl.textContent = wave;
+      makeAliens(wave);
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function die() {
+  alive = false;
+  if (score > saved.best) { saved.best = score; bestEl.textContent = score; }
+  GG.save(SLUG, saved);
+  msgEl.textContent = `Score ${score}.`;
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Score ${score}, wave ${wave}.`);
+}
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  // starfield
+  ctx.fillStyle = "rgba(255,255,255,0.25)";
+  for (let i = 0; i < 30; i++) {
+    const sx = (i * 53) % W;
+    const sy = ((i * 91 + Math.floor(performance.now() / 30)) % H);
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+  // ship
+  ctx.fillStyle = ship.color;
+  ctx.fillRect(ship.x - ship.w / 2, ship.y - ship.h / 2, ship.w, ship.h);
+  ctx.fillRect(ship.x - 3, ship.y - ship.h, 6, ship.h);
+  // aliens
+  for (const a of aliens) {
+    ctx.fillStyle = a.color;
+    ctx.fillRect(a.x - a.w / 2, a.y - a.h / 2, a.w, a.h);
+    ctx.fillStyle = "#0a0e1f";
+    ctx.fillRect(a.x - 6, a.y - 2, 3, 3);
+    ctx.fillRect(a.x + 3, a.y - 2, 3, 3);
+  }
+  // bullets
+  ctx.fillStyle = "#fcd34d";
+  for (const b of bullets) ctx.fillRect(b.x - 2, b.y - 6, 4, 12);
+  ctx.fillStyle = "#fb7185";
+  for (const b of alienBullets) ctx.fillRect(b.x - 2, b.y - 6, 4, 12);
+}
+
+playBtn.addEventListener("click", () => { newGame(); playBtn.textContent = "Restart"; });
+newGame();
+alive = false;
+msgEl.textContent = "Press Play. Arrow keys to move, space to shoot.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

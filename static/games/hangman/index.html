@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hangman</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .hm-stage { display: flex; gap: 24px; align-items: center; }
+  .hm-word {
+    display: flex; gap: 10px; font-size: 36px; font-weight: 800;
+    font-family: ui-monospace, monospace;
+    letter-spacing: 6px;
+    color: var(--text);
+  }
+  .hm-letter { width: 32px; border-bottom: 4px solid var(--border); text-align: center; }
+  .hm-letter.revealed { border-color: var(--good); }
+  .hm-keys { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .hm-krow { display: flex; gap: 6px; }
+  .hm-key {
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 700;
+    padding: 8px 10px;
+    min-width: 30px;
+    cursor: pointer;
+  }
+  .hm-key.hit  { background: var(--good); border-color: var(--good); color: white; }
+  .hm-key.miss { background: var(--bad); border-color: var(--bad); color: white; opacity: 0.6; }
+  .hm-key:disabled { cursor: default; }
+  .hm-modes { display: flex; gap: 6px; }
+  .hm-modes button.active { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <div class="hm-modes">
+      <button class="game-btn" data-dif="easy">Easy</button>
+      <button class="game-btn" data-dif="medium">Medium</button>
+      <button class="game-btn" data-dif="hard">Hard</button>
+    </div>
+    <span>Wins: <strong id="wins">0</strong></span>
+    <span>Losses: <strong id="losses">0</strong></span>
+    <span>Misses: <strong id="misses">0</strong>/6</span>
+    <button class="game-btn primary" id="newGame">New word</button>
+  </div>
+  <div class="hm-stage">
+    <canvas id="cv" width="220" height="260"></canvas>
+    <div>
+      <div id="word" class="hm-word"></div>
+      <div id="msg" class="game-message" style="margin-top: 14px;">Guess the word.</div>
+    </div>
+  </div>
+  <div class="hm-keys" id="keys"></div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "hangman";
+const WORDS = {
+  easy: ["apple","truck","horse","sugar","music","tiger","cloud","light","river","ocean","piano","queen","plant","candy","robot","ghost","brain","money","party","earth"],
+  medium: ["pirate","wizard","rocket","helmet","castle","jungle","puzzle","stream","mirror","sketch","monkey","cement","walnut","poodle","carpet","bridge","kettle","gravel","silver","tunnel"],
+  hard: ["adjective","perpendicular","quizzical","jukebox","sympathy","rhythm","syndrome","whisper","cyclops","gigabyte","frostbite","kayak","oxygen","quartz","sphinx","zombie","mosquito","awkward","cymbal","jealous"],
+};
+
+let saved = GG.load(SLUG, { wins: 0, losses: 0, wordsGuessed: 0 }) || {};
+saved = Object.assign({ wins: 0, losses: 0, wordsGuessed: 0 }, saved);
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const wordEl = document.getElementById("word");
+const keysEl = document.getElementById("keys");
+const winsEl = document.getElementById("wins");
+const lossesEl = document.getElementById("losses");
+const missesEl = document.getElementById("misses");
+const msgEl = document.getElementById("msg");
+const MAX_MISS = 6;
+
+let dif = "easy";
+let answer = "";
+let revealed = new Set();
+let tried = new Set();
+let misses = 0;
+let over = false;
+
+function newGame() {
+  const list = WORDS[dif];
+  answer = list[Math.floor(Math.random() * list.length)];
+  revealed = new Set();
+  tried = new Set();
+  misses = 0; over = false;
+  msgEl.textContent = `Guess the ${dif} word.`;
+  render();
+}
+
+function render() {
+  wordEl.innerHTML = "";
+  for (const ch of answer) {
+    const el = document.createElement("div");
+    el.className = "hm-letter";
+    if (revealed.has(ch)) {
+      el.textContent = ch.toUpperCase();
+      el.classList.add("revealed");
+    }
+    wordEl.appendChild(el);
+  }
+  renderKeys();
+  drawHangman();
+  winsEl.textContent = saved.wins;
+  lossesEl.textContent = saved.losses;
+  missesEl.textContent = misses;
+}
+
+function renderKeys() {
+  keysEl.innerHTML = "";
+  const layout = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+  for (const row of layout) {
+    const r = document.createElement("div");
+    r.className = "hm-krow";
+    for (const ch of row) {
+      const b = document.createElement("button");
+      b.className = "hm-key";
+      b.textContent = ch.toUpperCase();
+      if (tried.has(ch)) {
+        b.disabled = true;
+        b.classList.add(answer.includes(ch) ? "hit" : "miss");
+      } else if (over) {
+        b.disabled = true;
+      }
+      b.addEventListener("click", () => guess(ch));
+      r.appendChild(b);
+    }
+    keysEl.appendChild(r);
+  }
+}
+
+function guess(ch) {
+  if (over || tried.has(ch)) return;
+  tried.add(ch);
+  if (answer.includes(ch)) {
+    revealed.add(ch);
+    if ([...answer].every((c) => revealed.has(c))) win();
+  } else {
+    misses++;
+    if (misses >= MAX_MISS) lose();
+  }
+  render();
+}
+
+function win() {
+  over = true;
+  saved.wins++;
+  saved.wordsGuessed = (saved.wordsGuessed || 0) + 1;
+  GG.save(SLUG, saved);
+  msgEl.textContent = `You got "${answer.toUpperCase()}"!`;
+  if (window.GG && GG.youWin) GG.youWin("You Win!", `Guessed "${answer.toUpperCase()}" with ${misses} miss${misses === 1 ? "" : "es"}.`);
+}
+
+function lose() {
+  over = true;
+  for (const ch of answer) revealed.add(ch);
+  saved.losses++;
+  GG.save(SLUG, saved);
+  msgEl.textContent = `The word was "${answer.toUpperCase()}".`;
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `The word was "${answer.toUpperCase()}".`);
+}
+
+function drawHangman() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.strokeStyle = "#a8a29e";
+  ctx.lineWidth = 4;
+  // gallows base
+  ctx.beginPath(); ctx.moveTo(20, 240); ctx.lineTo(160, 240); ctx.stroke();
+  // vertical post
+  ctx.beginPath(); ctx.moveTo(50, 240); ctx.lineTo(50, 30); ctx.stroke();
+  // top beam
+  ctx.beginPath(); ctx.moveTo(50, 30); ctx.lineTo(140, 30); ctx.stroke();
+  // rope
+  ctx.beginPath(); ctx.moveTo(140, 30); ctx.lineTo(140, 60); ctx.stroke();
+  // body parts based on misses
+  ctx.strokeStyle = "#f3f4ff";
+  if (misses > 0) { // head
+    ctx.beginPath(); ctx.arc(140, 80, 20, 0, Math.PI * 2); ctx.stroke();
+  }
+  if (misses > 1) { // torso
+    ctx.beginPath(); ctx.moveTo(140, 100); ctx.lineTo(140, 170); ctx.stroke();
+  }
+  if (misses > 2) { // left arm
+    ctx.beginPath(); ctx.moveTo(140, 120); ctx.lineTo(110, 150); ctx.stroke();
+  }
+  if (misses > 3) { // right arm
+    ctx.beginPath(); ctx.moveTo(140, 120); ctx.lineTo(170, 150); ctx.stroke();
+  }
+  if (misses > 4) { // left leg
+    ctx.beginPath(); ctx.moveTo(140, 170); ctx.lineTo(115, 210); ctx.stroke();
+  }
+  if (misses > 5) { // right leg
+    ctx.beginPath(); ctx.moveTo(140, 170); ctx.lineTo(165, 210); ctx.stroke();
+  }
+}
+
+window.addEventListener("keydown", (e) => {
+  if (over) return;
+  const k = e.key.toLowerCase();
+  if (/^[a-z]$/.test(k)) guess(k);
+});
+
+document.querySelectorAll("[data-dif]").forEach((b) => {
+  b.addEventListener("click", () => {
+    dif = b.dataset.dif;
+    document.querySelectorAll("[data-dif]").forEach((x) => x.classList.toggle("active", x === b));
+    newGame();
+  });
+});
+document.querySelector('[data-dif="easy"]').classList.add("active");
+document.getElementById("newGame").addEventListener("click", newGame);
+newGame();
+</script>
+</body>
+</html>

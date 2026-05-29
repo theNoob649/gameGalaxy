@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Word Search</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .ws-stage { display: flex; gap: 24px; align-items: flex-start; }
+  .ws-grid {
+    display: grid;
+    background: var(--border);
+    padding: 4px;
+    border-radius: 10px;
+    user-select: none;
+  }
+  .ws-cell {
+    width: 32px; height: 32px;
+    background: var(--panel);
+    margin: 1px;
+    display: grid; place-items: center;
+    font-weight: 700;
+    font-family: ui-monospace, monospace;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.06s;
+  }
+  .ws-cell.sel  { background: rgba(124, 92, 255, 0.4); color: white; }
+  .ws-cell.found { background: rgba(52, 211, 153, 0.45); color: white; }
+  .ws-words {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    min-width: 140px;
+  }
+  .ws-words h3 { margin: 0 0 8px; font-size: 14px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .ws-words ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+  .ws-words li { font-family: ui-monospace, monospace; font-weight: 700; }
+  .ws-words li.found { text-decoration: line-through; color: var(--good); }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Found: <strong id="found">0</strong>/<strong id="total">0</strong></span>
+    <span>Time: <strong id="time">0s</strong></span>
+    <span>Best: <strong id="best">-</strong></span>
+    <button class="game-btn primary" id="newGame">New puzzle</button>
+  </div>
+  <div class="ws-stage">
+    <div id="grid" class="ws-grid"></div>
+    <div class="ws-words">
+      <h3>Words</h3>
+      <ul id="wordList"></ul>
+    </div>
+  </div>
+  <div class="game-message" id="msg">Drag from the first letter of a word to its last letter.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "word-search";
+const SIZE = 12;
+const WORD_POOL = [
+  "PLANET","ROCKET","GALAXY","ASTEROID","COMET","NEBULA","ORBIT","METEOR",
+  "GUITAR","PIANO","VIOLIN","DRUMS","BASS","FLUTE",
+  "DRAGON","WIZARD","CASTLE","KNIGHT","PRINCESS","GOBLIN",
+  "FOREST","RIVER","MOUNTAIN","DESERT","ISLAND","VOLCANO",
+  "CIRCLE","SQUARE","TRIANGLE","HEXAGON",
+  "PYTHON","JAVA","RUBY","RUST","SWIFT",
+];
+
+let saved = GG.load(SLUG, { puzzles: 0, bestTime: null }) || {};
+saved = Object.assign({ puzzles: 0, bestTime: null }, saved);
+
+const gridEl = document.getElementById("grid");
+const wordListEl = document.getElementById("wordList");
+const foundEl = document.getElementById("found");
+const totalEl = document.getElementById("total");
+const timeEl = document.getElementById("time");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+
+let grid, words, foundWords, dragging, dragPath, startTs, timerId;
+
+const DIRS = [
+  [0, 1], [1, 0], [1, 1], [-1, 1],
+  [0, -1], [-1, 0], [-1, -1], [1, -1],
+];
+
+function pickWords() {
+  const count = 8;
+  const pool = [...WORD_POOL].sort(() => Math.random() - 0.5);
+  return pool.slice(0, count).filter((w) => w.length <= SIZE).slice(0, count);
+}
+
+function makePuzzle() {
+  grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(""));
+  const pool = pickWords();
+  const placed = [];
+  for (const w of pool) {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const [dr, dc] = DIRS[Math.floor(Math.random() * DIRS.length)];
+      const r = Math.floor(Math.random() * SIZE);
+      const c = Math.floor(Math.random() * SIZE);
+      const endR = r + dr * (w.length - 1);
+      const endC = c + dc * (w.length - 1);
+      if (endR < 0 || endR >= SIZE || endC < 0 || endC >= SIZE) continue;
+      let ok = true;
+      for (let i = 0; i < w.length; i++) {
+        const ch = grid[r + dr * i][c + dc * i];
+        if (ch && ch !== w[i]) { ok = false; break; }
+      }
+      if (!ok) continue;
+      for (let i = 0; i < w.length; i++) grid[r + dr * i][c + dc * i] = w[i];
+      placed.push(w);
+      break;
+    }
+  }
+  // fill the rest with random letters
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    if (!grid[r][c]) grid[r][c] = String.fromCharCode(65 + Math.floor(Math.random() * 26));
+  }
+  return placed;
+}
+
+function startTimer() {
+  startTs = performance.now();
+  if (timerId) clearInterval(timerId);
+  timerId = setInterval(() => {
+    timeEl.textContent = Math.floor((performance.now() - startTs) / 1000) + "s";
+  }, 250);
+}
+
+function newGame() {
+  words = makePuzzle();
+  foundWords = new Set();
+  dragging = false;
+  dragPath = [];
+  totalEl.textContent = words.length;
+  foundEl.textContent = 0;
+  bestEl.textContent = saved.bestTime != null ? saved.bestTime + "s" : "-";
+  msgEl.textContent = "Drag from the first letter of a word to its last letter.";
+  renderGrid();
+  renderWords();
+  startTimer();
+}
+
+function renderGrid() {
+  gridEl.style.gridTemplateColumns = `repeat(${SIZE}, 34px)`;
+  gridEl.innerHTML = "";
+  for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+    const cell = document.createElement("div");
+    cell.className = "ws-cell";
+    cell.textContent = grid[r][c];
+    cell.dataset.r = r;
+    cell.dataset.c = c;
+    cell.addEventListener("pointerdown", onDown);
+    cell.addEventListener("pointerenter", onEnter);
+    gridEl.appendChild(cell);
+  }
+}
+
+function renderWords() {
+  wordListEl.innerHTML = "";
+  for (const w of words) {
+    const li = document.createElement("li");
+    li.textContent = w;
+    if (foundWords.has(w)) li.classList.add("found");
+    wordListEl.appendChild(li);
+  }
+}
+
+function cellEl(r, c) {
+  return gridEl.children[r * SIZE + c];
+}
+
+function onDown(e) {
+  e.preventDefault();
+  dragging = true;
+  dragPath = [{ r: +this.dataset.r, c: +this.dataset.c }];
+  updateSelection();
+  window.addEventListener("pointerup", onUp, { once: true });
+}
+
+function onEnter(e) {
+  if (!dragging) return;
+  const r = +this.dataset.r, c = +this.dataset.c;
+  if (!dragPath.length) return;
+  const start = dragPath[0];
+  // constrain selection to a straight line from the start
+  const dr = Math.sign(r - start.r), dc = Math.sign(c - start.c);
+  const len = Math.max(Math.abs(r - start.r), Math.abs(c - start.c));
+  if (len !== 0 && (Math.abs(r - start.r) !== 0 && Math.abs(c - start.c) !== 0
+                    && Math.abs(r - start.r) !== Math.abs(c - start.c))) return;
+  const path = [];
+  for (let i = 0; i <= len; i++) path.push({ r: start.r + dr * i, c: start.c + dc * i });
+  dragPath = path;
+  updateSelection();
+}
+
+function onUp() {
+  dragging = false;
+  // check if the dragged path spells a word (forward or reverse)
+  const letters = dragPath.map((p) => grid[p.r][p.c]).join("");
+  const reverse = letters.split("").reverse().join("");
+  let hit = null;
+  for (const w of words) {
+    if (!foundWords.has(w) && (w === letters || w === reverse)) { hit = w; break; }
+  }
+  // clear sel
+  for (const cell of gridEl.children) cell.classList.remove("sel");
+  if (hit) {
+    foundWords.add(hit);
+    for (const p of dragPath) cellEl(p.r, p.c).classList.add("found");
+    foundEl.textContent = foundWords.size;
+    renderWords();
+    if (foundWords.size === words.length) winRound();
+  }
+  dragPath = [];
+}
+
+function updateSelection() {
+  for (const cell of gridEl.children) cell.classList.remove("sel");
+  for (const p of dragPath) cellEl(p.r, p.c).classList.add("sel");
+}
+
+function winRound() {
+  clearInterval(timerId);
+  const elapsed = Math.floor((performance.now() - startTs) / 1000);
+  saved.puzzles = (saved.puzzles || 0) + 1;
+  let newBest = false;
+  if (saved.bestTime == null || elapsed < saved.bestTime) {
+    saved.bestTime = elapsed; newBest = true;
+    bestEl.textContent = elapsed + "s";
+  }
+  GG.save(SLUG, saved);
+  msgEl.textContent = `All found in ${elapsed}s.${newBest ? " New best!" : ""}`;
+  if (window.GG && GG.youWin) GG.youWin("You Win!", `Solved in ${elapsed}s.${newBest ? " New best!" : ""}`);
+}
+
+document.getElementById("newGame").addEventListener("click", newGame);
+newGame();
+</script>
+</body>
+</html>

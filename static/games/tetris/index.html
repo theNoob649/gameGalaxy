@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tetris</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Lines: <strong id="lines">0</strong></span>
+    <span>Level: <strong id="level">1</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="320" height="640"></canvas>
+  <div class="game-message" id="msg">Arrows to move. Up to rotate. Space to hard-drop.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "tetris";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const COLS = 10, ROWS = 20, CELL = 32;
+const W = cv.width, H = cv.height;
+
+let saved = GG.load(SLUG, { best: 0 }) || { best: 0 };
+saved = Object.assign({ best: 0 }, saved);
+
+const scoreEl = document.getElementById("score");
+const linesEl = document.getElementById("lines");
+const levelEl = document.getElementById("level");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+bestEl.textContent = saved.best;
+
+const PIECES = {
+  I: { color: "#22d3ee", blocks: [[0,1],[1,1],[2,1],[3,1]] },
+  O: { color: "#facc15", blocks: [[1,0],[2,0],[1,1],[2,1]] },
+  T: { color: "#a78bfa", blocks: [[1,0],[0,1],[1,1],[2,1]] },
+  S: { color: "#34d399", blocks: [[1,0],[2,0],[0,1],[1,1]] },
+  Z: { color: "#f87171", blocks: [[0,0],[1,0],[1,1],[2,1]] },
+  L: { color: "#fb923c", blocks: [[2,0],[0,1],[1,1],[2,1]] },
+  J: { color: "#60a5fa", blocks: [[0,0],[0,1],[1,1],[2,1]] },
+};
+const PIECE_KEYS = Object.keys(PIECES);
+
+let board, current, score, lines, level, alive, dropTimer, dropInterval;
+
+function newBoard() {
+  return Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+}
+
+function newPiece() {
+  const k = PIECE_KEYS[Math.floor(Math.random() * PIECE_KEYS.length)];
+  const p = PIECES[k];
+  return {
+    kind: k,
+    color: p.color,
+    blocks: p.blocks.map(([x, y]) => [x, y]),
+    x: 3, y: -1,
+  };
+}
+
+function rotate(blocks) {
+  // 90-degree clockwise rotation around (1.5, 1.5) bounding center
+  return blocks.map(([x, y]) => [3 - y, x]);
+}
+
+function newGame() {
+  board = newBoard();
+  current = newPiece();
+  score = 0; lines = 0; level = 1; alive = true;
+  dropInterval = 0.6;
+  dropTimer = 0;
+  scoreEl.textContent = 0;
+  linesEl.textContent = 0;
+  levelEl.textContent = 1;
+  msgEl.textContent = "Arrows to move. Up to rotate. Space to hard-drop.";
+}
+
+function valid(piece, dx = 0, dy = 0, newBlocks = null) {
+  const blocks = newBlocks || piece.blocks;
+  for (const [x, y] of blocks) {
+    const nx = piece.x + x + dx;
+    const ny = piece.y + y + dy;
+    if (nx < 0 || nx >= COLS) return false;
+    if (ny >= ROWS) return false;
+    if (ny >= 0 && board[ny][nx]) return false;
+  }
+  return true;
+}
+
+function lock(piece) {
+  for (const [x, y] of piece.blocks) {
+    const nx = piece.x + x, ny = piece.y + y;
+    if (ny < 0) return false; // game over (locking above board)
+    board[ny][nx] = piece.color;
+  }
+  // clear lines
+  let cleared = 0;
+  for (let r = ROWS - 1; r >= 0; r--) {
+    if (board[r].every((c) => c)) {
+      board.splice(r, 1);
+      board.unshift(Array(COLS).fill(null));
+      cleared++;
+      r++;
+    }
+  }
+  if (cleared) {
+    const pts = [0, 100, 300, 500, 800][cleared] * level;
+    score += pts;
+    lines += cleared;
+    level = 1 + Math.floor(lines / 10);
+    dropInterval = Math.max(0.08, 0.6 - (level - 1) * 0.05);
+    scoreEl.textContent = score;
+    linesEl.textContent = lines;
+    levelEl.textContent = level;
+  }
+  return true;
+}
+
+function step() {
+  if (!valid(current, 0, 1)) {
+    if (!lock(current)) return die();
+    current = newPiece();
+    if (!valid(current)) return die();
+  } else {
+    current.y++;
+  }
+}
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  if (alive) {
+    dropTimer += dt;
+    if (dropTimer > dropInterval) {
+      step();
+      dropTimer = 0;
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function die() {
+  alive = false;
+  if (score > saved.best) { saved.best = score; bestEl.textContent = score; }
+  GG.save(SLUG, saved);
+  msgEl.textContent = `Game over. Score ${score}, ${lines} lines.`;
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Score ${score}, ${lines} lines.`);
+}
+
+window.addEventListener("keydown", (e) => {
+  if (!alive) return;
+  if (e.key === "ArrowLeft") {
+    if (valid(current, -1, 0)) current.x--;
+    e.preventDefault();
+  } else if (e.key === "ArrowRight") {
+    if (valid(current, 1, 0)) current.x++;
+    e.preventDefault();
+  } else if (e.key === "ArrowDown") {
+    if (valid(current, 0, 1)) { current.y++; score++; scoreEl.textContent = score; }
+    e.preventDefault();
+  } else if (e.key === "ArrowUp") {
+    const rotated = rotate(current.blocks);
+    if (valid(current, 0, 0, rotated)) current.blocks = rotated;
+    else if (valid(current, -1, 0, rotated)) { current.x--; current.blocks = rotated; }
+    else if (valid(current, 1, 0, rotated)) { current.x++; current.blocks = rotated; }
+    e.preventDefault();
+  } else if (e.key === " ") {
+    while (valid(current, 0, 1)) { current.y++; score += 2; }
+    scoreEl.textContent = score;
+    step();
+    e.preventDefault();
+  }
+});
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  // board grid
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  for (let r = 1; r < ROWS; r++) {
+    ctx.beginPath(); ctx.moveTo(0, r * CELL); ctx.lineTo(W, r * CELL); ctx.stroke();
+  }
+  for (let c = 1; c < COLS; c++) {
+    ctx.beginPath(); ctx.moveTo(c * CELL, 0); ctx.lineTo(c * CELL, H); ctx.stroke();
+  }
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const v = board[r][c];
+      if (v) drawCell(c, r, v);
+    }
+  }
+  if (current && alive) {
+    for (const [x, y] of current.blocks) {
+      drawCell(current.x + x, current.y + y, current.color);
+    }
+  }
+}
+
+function drawCell(c, r, color) {
+  const x = c * CELL, y = r * CELL;
+  ctx.fillStyle = color;
+  ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+  ctx.fillStyle = "rgba(255,255,255,0.2)";
+  ctx.fillRect(x + 1, y + 1, CELL - 2, 4);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  ctx.fillRect(x + 1, y + CELL - 5, CELL - 2, 4);
+}
+
+playBtn.addEventListener("click", () => { newGame(); playBtn.textContent = "Restart"; });
+newGame();
+alive = false;
+msgEl.textContent = "Press Play to start.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

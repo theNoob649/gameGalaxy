@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Blackjack</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .bj-table {
+    background: linear-gradient(180deg, #14532d, #052e16);
+    border: 2px solid #064e3b;
+    border-radius: 16px;
+    padding: 20px;
+    width: min(680px, 100%);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+  }
+  .bj-hand { display: flex; gap: 10px; flex-wrap: wrap; min-height: 130px; align-items: center; }
+  .bj-label { font-size: 13px; color: rgba(255,255,255,0.7); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .bj-row { margin-bottom: 18px; }
+  .bj-card {
+    width: 80px; height: 116px;
+    background: white;
+    border-radius: 8px;
+    position: relative;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    color: #1a1a1a;
+    font-family: ui-monospace, monospace;
+  }
+  .bj-card.red { color: #b91c1c; }
+  .bj-card.back {
+    background: linear-gradient(135deg, #7c5cff, #ff6b9d);
+    color: transparent;
+  }
+  .bj-card .top, .bj-card .bottom {
+    position: absolute; font-size: 14px;
+  }
+  .bj-card .top { top: 6px; left: 8px; }
+  .bj-card .bottom { bottom: 6px; right: 8px; transform: rotate(180deg); }
+  .bj-card .mid { font-size: 30px; }
+  .bj-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+  .bj-chips { display: flex; gap: 16px; align-items: center; color: white; }
+  .bj-chips strong { color: #fcd34d; font-size: 22px; }
+  .bj-bet-controls { display: flex; gap: 4px; align-items: center; }
+  .bj-bet-chip {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .bj-bet-chip:hover { border-color: var(--accent); }
+  .bj-status { color: white; font-weight: 600; min-height: 1.5em; }
+  @keyframes deal {
+    from { transform: translate(-100px, -100px) rotate(-15deg); opacity: 0; }
+    to   { transform: translate(0, 0) rotate(0); opacity: 1; }
+  }
+  .bj-card { animation: deal 0.25s ease-out; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <div class="bj-chips">
+      <span>Chips: <strong id="chips">1000</strong></span>
+      <span>Bet: <strong id="betShown">25</strong></span>
+    </div>
+    <div class="bj-bet-controls">
+      <button class="bj-bet-chip" data-bet="-25">-25</button>
+      <button class="bj-bet-chip" data-bet="-100">-100</button>
+      <button class="bj-bet-chip" data-bet="25">+25</button>
+      <button class="bj-bet-chip" data-bet="100">+100</button>
+      <button class="bj-bet-chip" data-bet="500">+500</button>
+    </div>
+    <button class="game-btn primary" id="deal">Deal</button>
+  </div>
+  <div class="bj-table">
+    <div class="bj-row">
+      <div class="bj-label">Dealer (<span id="dealerScore">-</span>)</div>
+      <div id="dealerHand" class="bj-hand"></div>
+    </div>
+    <div class="bj-row">
+      <div class="bj-label">You (<span id="playerScore">-</span>)</div>
+      <div id="playerHand" class="bj-hand"></div>
+    </div>
+    <div class="bj-status" id="status">Place a bet, then click Deal.</div>
+    <div class="bj-controls" style="margin-top: 12px;">
+      <button class="game-btn" id="hit" disabled>Hit</button>
+      <button class="game-btn" id="stand" disabled>Stand</button>
+      <button class="game-btn" id="double" disabled>Double down</button>
+    </div>
+  </div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "blackjack";
+let saved = GG.load(SLUG, { chips: 1000, hands: 0, wins: 0, bestChips: 1000 }) || {};
+saved = Object.assign({ chips: 1000, hands: 0, wins: 0, bestChips: 1000 }, saved);
+if (saved.chips <= 0) saved.chips = 1000; // bankroll reset if busted out
+
+const SUITS = ["♠","♥","♦","♣"];
+const RANKS = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+
+let deck = [];
+let player = [];
+let dealer = [];
+let bet = 25;
+let inRound = false;
+let revealDealer = false;
+let didDouble = false;
+
+const chipsEl = document.getElementById("chips");
+const betShown = document.getElementById("betShown");
+const dealerEl = document.getElementById("dealerHand");
+const playerEl = document.getElementById("playerHand");
+const dealerScoreEl = document.getElementById("dealerScore");
+const playerScoreEl = document.getElementById("playerScore");
+const statusEl = document.getElementById("status");
+const dealBtn = document.getElementById("deal");
+const hitBtn = document.getElementById("hit");
+const standBtn = document.getElementById("stand");
+const doubleBtn = document.getElementById("double");
+
+function shuffleDeck() {
+  deck = [];
+  for (let d = 0; d < 4; d++) { // 4-deck shoe
+    for (const s of SUITS) for (const r of RANKS) deck.push({ rank: r, suit: s });
+  }
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+}
+
+function cardValue(c) {
+  if (c.rank === "A") return 11;
+  if (["J", "Q", "K"].includes(c.rank)) return 10;
+  return parseInt(c.rank, 10);
+}
+
+function handScore(hand) {
+  let s = 0, aces = 0;
+  for (const c of hand) {
+    s += cardValue(c);
+    if (c.rank === "A") aces++;
+  }
+  while (s > 21 && aces > 0) { s -= 10; aces--; }
+  return s;
+}
+
+function renderCard(c, hidden) {
+  const el = document.createElement("div");
+  el.className = "bj-card";
+  if (hidden) el.classList.add("back");
+  if (!hidden && (c.suit === "♥" || c.suit === "♦")) el.classList.add("red");
+  if (hidden) {
+    el.innerHTML = '<div class="mid">?</div>';
+  } else {
+    el.innerHTML = `
+      <div class="top">${c.rank}${c.suit}</div>
+      <div class="mid">${c.suit}</div>
+      <div class="bottom">${c.rank}${c.suit}</div>
+    `;
+  }
+  return el;
+}
+
+function render() {
+  dealerEl.innerHTML = "";
+  playerEl.innerHTML = "";
+  dealer.forEach((c, i) => dealerEl.appendChild(renderCard(c, !revealDealer && i === 1)));
+  player.forEach((c) => playerEl.appendChild(renderCard(c, false)));
+  chipsEl.textContent = saved.chips;
+  betShown.textContent = bet;
+  const ps = handScore(player);
+  playerScoreEl.textContent = player.length ? ps : "-";
+  if (revealDealer) {
+    dealerScoreEl.textContent = handScore(dealer);
+  } else if (dealer.length) {
+    dealerScoreEl.textContent = cardValue(dealer[0]) + " + ?";
+  } else {
+    dealerScoreEl.textContent = "-";
+  }
+}
+
+function adjustBet(delta) {
+  if (inRound) return;
+  bet = Math.max(25, Math.min(saved.chips, bet + delta));
+  render();
+}
+
+function startRound() {
+  if (inRound) return;
+  if (saved.chips < bet) { statusEl.textContent = "Not enough chips for that bet."; return; }
+  if (deck.length < 20) shuffleDeck();
+  saved.chips -= bet;
+  saved.hands = (saved.hands || 0) + 1;
+  player = [deck.pop(), deck.pop()];
+  dealer = [deck.pop(), deck.pop()];
+  revealDealer = false;
+  didDouble = false;
+  inRound = true;
+  hitBtn.disabled = false; standBtn.disabled = false;
+  doubleBtn.disabled = player.length !== 2 || saved.chips < bet;
+  dealBtn.disabled = true;
+  statusEl.textContent = "Your move.";
+  render();
+  if (handScore(player) === 21) {
+    // natural blackjack
+    setTimeout(() => finishRound("blackjack"), 400);
+  }
+}
+
+function hit() {
+  if (!inRound) return;
+  player.push(deck.pop());
+  doubleBtn.disabled = true;
+  render();
+  if (handScore(player) > 21) finishRound("bust");
+}
+
+function stand() {
+  if (!inRound) return;
+  revealDealer = true;
+  hitBtn.disabled = true; standBtn.disabled = true; doubleBtn.disabled = true;
+  while (handScore(dealer) < 17) {
+    dealer.push(deck.pop());
+  }
+  render();
+  setTimeout(resolveRound, 400);
+}
+
+function doubleDown() {
+  if (!inRound || player.length !== 2 || saved.chips < bet) return;
+  saved.chips -= bet;
+  bet *= 2;
+  didDouble = true;
+  player.push(deck.pop());
+  render();
+  if (handScore(player) > 21) finishRound("bust");
+  else stand();
+}
+
+function resolveRound() {
+  const ps = handScore(player), ds = handScore(dealer);
+  if (ds > 21) return finishRound("dealerBust");
+  if (ps > ds)  return finishRound("win");
+  if (ps < ds)  return finishRound("lose");
+  return finishRound("push");
+}
+
+function finishRound(outcome) {
+  inRound = false;
+  revealDealer = true;
+  hitBtn.disabled = true; standBtn.disabled = true; doubleBtn.disabled = true;
+  dealBtn.disabled = false;
+  let payout = 0;
+  let line = "";
+  if (outcome === "blackjack") {
+    payout = Math.floor(bet * 2.5); // 3:2 plus stake back
+    line = "Blackjack! +" + payout;
+    saved.wins++;
+  } else if (outcome === "win" || outcome === "dealerBust") {
+    payout = bet * 2;
+    line = (outcome === "dealerBust" ? "Dealer busts. " : "You win. ") + "+" + payout;
+    saved.wins++;
+  } else if (outcome === "push") {
+    payout = bet;
+    line = "Push. Bet returned.";
+  } else if (outcome === "bust") {
+    line = "Bust! -" + bet;
+  } else {
+    line = "Dealer wins. -" + bet;
+  }
+  saved.chips += payout;
+  if (saved.chips > (saved.bestChips || 0)) saved.bestChips = saved.chips;
+  // restore bet for the next hand (don't keep the doubled amount as the persistent bet)
+  if (didDouble) bet = Math.max(25, Math.floor(bet / 2));
+  statusEl.textContent = line + " Chips: " + saved.chips;
+  GG.save(SLUG, saved);
+  render();
+  if (saved.chips <= 0) {
+    setTimeout(() => {
+      if (window.GG && GG.youLose) GG.youLose("You Lose", "Bankroll busted. Resetting to 1000 chips.");
+      saved.chips = 1000;
+      GG.save(SLUG, saved);
+      render();
+    }, 1000);
+  }
+}
+
+document.querySelectorAll(".bj-bet-chip").forEach((b) =>
+  b.addEventListener("click", () => adjustBet(parseInt(b.dataset.bet, 10)))
+);
+dealBtn.addEventListener("click", startRound);
+hitBtn.addEventListener("click", hit);
+standBtn.addEventListener("click", stand);
+doubleBtn.addEventListener("click", doubleDown);
+
+window.addEventListener("keydown", (e) => {
+  if (!inRound) return;
+  if (e.key === "h") hit();
+  else if (e.key === "s") stand();
+  else if (e.key === "d") doubleDown();
+});
+
+shuffleDeck();
+render();
+</script>
+</body>
+</html>

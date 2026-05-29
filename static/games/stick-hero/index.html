@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stick Hero</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Score: <strong id="score">0</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="520" height="560"></canvas>
+  <div class="game-message" id="msg">Hold mouse / space to grow the stick. Release to drop it.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "stick-hero";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const GROUND_Y = H - 80;
+
+let saved = GG.load(SLUG, { best: 0 }) || { best: 0 };
+saved = Object.assign({ best: 0 }, saved);
+
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+bestEl.textContent = saved.best;
+
+let hero, current, next, stick, score, phase, alive, cameraShift, targetCameraShift;
+
+function reset() {
+  hero = { x: 0, y: 0 };
+  current = { x: 70, w: 90 };  // platform you're on
+  next    = makeNext();
+  stick   = { len: 0, falling: false, angle: 0 };
+  score = 0; alive = true;
+  phase = "wait";  // wait, growing, falling, walking, sliding, done
+  cameraShift = 0; targetCameraShift = 0;
+  scoreEl.textContent = 0;
+  msgEl.textContent = "Hold mouse / space to grow the stick. Release to drop it.";
+  hero.x = current.x + current.w - 14;
+  hero.y = GROUND_Y;
+}
+
+function makeNext() {
+  const gap = 40 + Math.random() * 150;
+  const w = 30 + Math.random() * 70;
+  return { x: current.x + current.w + gap, w };
+}
+
+let pressing = false;
+const startPress = () => {
+  if (!alive || phase !== "wait") return;
+  pressing = true;
+  phase = "growing";
+  stick.len = 0;
+};
+const endPress = () => {
+  if (phase !== "growing") return;
+  pressing = false;
+  phase = "falling";
+};
+
+cv.addEventListener("mousedown", startPress);
+window.addEventListener("mouseup", endPress);
+window.addEventListener("keydown", (e) => { if (e.key === " ") { e.preventDefault(); startPress(); }});
+window.addEventListener("keyup",   (e) => { if (e.key === " ") { endPress(); }});
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+
+  if (phase === "growing") {
+    stick.len += 360 * dt;
+  } else if (phase === "falling") {
+    stick.angle += 4.5 * dt;
+    if (stick.angle >= Math.PI / 2) {
+      stick.angle = Math.PI / 2;
+      // determine if it reaches the next platform
+      const tipX = (current.x + current.w) + stick.len;
+      if (tipX >= next.x && tipX <= next.x + next.w) {
+        phase = "walking";
+        // bonus for hitting near the center
+        const centerHit = Math.abs(tipX - (next.x + next.w / 2)) < 6;
+        if (centerHit) score++;
+      } else {
+        phase = "sliding";
+      }
+    }
+  } else if (phase === "walking") {
+    hero.x += 280 * dt;
+    if (hero.x >= next.x + next.w - 14) {
+      hero.x = next.x + next.w - 14;
+      // advance to new round
+      score++;
+      scoreEl.textContent = score;
+      current = next;
+      next = makeNext();
+      stick = { len: 0, falling: false, angle: 0 };
+      phase = "wait";
+      targetCameraShift = current.x - 70;
+    }
+  } else if (phase === "sliding") {
+    hero.x += 280 * dt;
+    hero.y += 600 * dt;
+    if (hero.y > H + 40) die();
+  }
+  cameraShift += (targetCameraShift - cameraShift) * 6 * dt;
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function die() {
+  if (!alive) return;
+  alive = false;
+  if (score > saved.best) { saved.best = score; bestEl.textContent = score; }
+  GG.save(SLUG, saved);
+  msgEl.textContent = `Score: ${score}`;
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Score ${score}.`);
+}
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  // sky gradient
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, "#1e1b4b");
+  g.addColorStop(1, "#0a0e1f");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(-cameraShift, 0);
+  // platforms
+  for (const p of [current, next]) {
+    ctx.fillStyle = "#1f2937";
+    ctx.fillRect(p.x, GROUND_Y, p.w, H - GROUND_Y);
+    ctx.fillStyle = "#0a0e1f";
+    ctx.fillRect(p.x, GROUND_Y, p.w, 4);
+  }
+  // stick
+  if (phase === "growing" || phase === "falling" || phase === "walking" || phase === "sliding") {
+    const baseX = current.x + current.w;
+    ctx.save();
+    ctx.translate(baseX, GROUND_Y);
+    ctx.rotate(-Math.PI / 2 + stick.angle);
+    ctx.fillStyle = "#cbd5e1";
+    ctx.fillRect(0, -2, stick.len, 4);
+    ctx.restore();
+  }
+  // hero
+  ctx.fillStyle = "#ea580c";
+  ctx.fillRect(hero.x - 12, hero.y - 28, 24, 28);
+  ctx.fillStyle = "#fcd34d";
+  ctx.fillRect(hero.x - 6, hero.y - 22, 4, 4);
+  ctx.fillRect(hero.x + 2, hero.y - 22, 4, 4);
+  ctx.restore();
+}
+
+playBtn.addEventListener("click", () => { reset(); playBtn.textContent = "Restart"; });
+reset();
+alive = false;
+phase = "done";
+msgEl.textContent = "Press Play to start.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Plinko</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Chips: <strong id="chips">100</strong></span>
+    <span>Last: <strong id="last">-</strong></span>
+    <span>Best: <strong id="best">0</strong></span>
+    <button class="game-btn primary" id="drop">Drop chip (10)</button>
+    <button class="game-btn" id="auto">Auto x10</button>
+  </div>
+  <canvas id="cv" width="500" height="560"></canvas>
+  <div class="game-message" id="msg">Click anywhere along the top to drop a chip.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "plinko";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+
+let saved = GG.load(SLUG, { chips: 100, best: 0, totalDrops: 0 }) || {};
+saved = Object.assign({ chips: 100, best: 0, totalDrops: 0 }, saved);
+
+const chipsEl = document.getElementById("chips");
+const lastEl = document.getElementById("last");
+const bestEl = document.getElementById("best");
+const msgEl = document.getElementById("msg");
+const dropBtn = document.getElementById("drop");
+const autoBtn = document.getElementById("auto");
+
+const ROWS = 12;
+const PEG_R = 4;
+const BALL_R = 8;
+const PEG_GAP = 38;
+const BUCKETS = ROWS + 1;
+const TOP_Y = 60;
+const FLOOR_Y = TOP_Y + ROWS * PEG_GAP + 30;
+// Bucket payouts: high in the middle for misses, very high on edges for "jackpots"
+const PAYOUTS = [50, 12, 5, 2, 1, 0, 0, 0, 1, 2, 5, 12, 50];
+
+const balls = [];
+const pegs = [];
+for (let r = 0; r < ROWS; r++) {
+  const cols = r + 3;
+  const y = TOP_Y + r * PEG_GAP;
+  const rowWidth = (cols - 1) * PEG_GAP;
+  const x0 = W / 2 - rowWidth / 2;
+  for (let c = 0; c < cols; c++) {
+    pegs.push({ x: x0 + c * PEG_GAP, y });
+  }
+}
+const BUCKET_W = W / BUCKETS;
+
+bestEl.textContent = saved.best;
+chipsEl.textContent = saved.chips;
+
+function dropChip(x) {
+  if (saved.chips < 10) { msgEl.textContent = "Out of chips! Wait for the bonus."; return false; }
+  saved.chips -= 10;
+  saved.totalDrops++;
+  chipsEl.textContent = saved.chips;
+  balls.push({ x, y: 30, vx: (Math.random() - 0.5) * 30, vy: 0, color: `hsl(${Math.random() * 360}, 80%, 65%)` });
+  return true;
+}
+
+cv.addEventListener("click", (e) => {
+  const rect = cv.getBoundingClientRect();
+  const x = (e.clientX - rect.left) * cv.width / rect.width;
+  dropChip(Math.max(40, Math.min(W - 40, x)));
+});
+dropBtn.addEventListener("click", () => dropChip(W / 2 + (Math.random() - 0.5) * 40));
+autoBtn.addEventListener("click", async () => {
+  for (let i = 0; i < 10; i++) {
+    if (!dropChip(W / 2 + (Math.random() - 0.5) * 120)) break;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+});
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  for (const b of balls.slice()) {
+    b.vy += 480 * dt;
+    b.vx *= 0.998;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    // peg collisions
+    for (const p of pegs) {
+      const dx = b.x - p.x, dy = b.y - p.y;
+      const d = Math.hypot(dx, dy);
+      const min = BALL_R + PEG_R;
+      if (d < min && d > 0) {
+        const nx = dx / d, ny = dy / d;
+        // push out
+        b.x = p.x + nx * min;
+        b.y = p.y + ny * min;
+        // reflect velocity along the normal, dampened
+        const v = b.vx * nx + b.vy * ny;
+        b.vx -= 2 * v * nx * 0.6;
+        b.vy -= 2 * v * ny * 0.6;
+        // little horizontal randomness so balls don't get stuck
+        b.vx += (Math.random() - 0.5) * 20;
+      }
+    }
+    // side walls
+    if (b.x - BALL_R < 0) { b.x = BALL_R; b.vx = Math.abs(b.vx) * 0.7; }
+    if (b.x + BALL_R > W) { b.x = W - BALL_R; b.vx = -Math.abs(b.vx) * 0.7; }
+    // floor: land in a bucket
+    if (b.y > FLOOR_Y) {
+      const bucket = Math.max(0, Math.min(BUCKETS - 1, Math.floor(b.x / BUCKET_W)));
+      const payout = PAYOUTS[bucket];
+      saved.chips += payout;
+      chipsEl.textContent = saved.chips;
+      lastEl.textContent = "+" + payout;
+      if (payout > (saved.best || 0)) {
+        saved.best = payout;
+        bestEl.textContent = payout;
+        msgEl.textContent = `Big drop! +${payout} chips.`;
+        if (payout >= 50 && window.GG && GG.youWin) GG.youWin("Jackpot!", `+${payout} chips.`);
+      } else {
+        msgEl.textContent = `+${payout} chips.`;
+      }
+      GG.save(SLUG, saved);
+      balls.splice(balls.indexOf(b), 1);
+    }
+  }
+  // small idle bonus
+  if (Math.random() < 0.0002 && saved.chips < 50) {
+    saved.chips += 5; chipsEl.textContent = saved.chips;
+    GG.save(SLUG, saved);
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function bucketColor(payout) {
+  if (payout >= 20) return "#ec4899";
+  if (payout >= 5)  return "#f59e0b";
+  if (payout >= 1)  return "#60a5fa";
+  return "#475569";
+}
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  // pegs
+  ctx.fillStyle = "#cbd5e1";
+  for (const p of pegs) {
+    ctx.beginPath(); ctx.arc(p.x, p.y, PEG_R, 0, Math.PI * 2); ctx.fill();
+  }
+  // buckets at the bottom
+  for (let i = 0; i < BUCKETS; i++) {
+    const x = i * BUCKET_W;
+    ctx.fillStyle = bucketColor(PAYOUTS[i]);
+    ctx.fillRect(x + 1, FLOOR_Y, BUCKET_W - 2, H - FLOOR_Y);
+    ctx.fillStyle = "white";
+    ctx.font = "bold 14px ui-sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("x" + PAYOUTS[i], x + BUCKET_W / 2, FLOOR_Y + 22);
+  }
+  // bucket walls
+  ctx.strokeStyle = "rgba(0,0,0,0.4)";
+  for (let i = 0; i <= BUCKETS; i++) {
+    const x = i * BUCKET_W;
+    ctx.beginPath(); ctx.moveTo(x, FLOOR_Y); ctx.lineTo(x, H); ctx.stroke();
+  }
+  // balls
+  for (const b of balls) {
+    ctx.fillStyle = b.color;
+    ctx.beginPath(); ctx.arc(b.x, b.y, BALL_R, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
