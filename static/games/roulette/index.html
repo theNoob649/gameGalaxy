@@ -240,14 +240,25 @@ function spin() {
   const targetNum = WHEEL_ORDER[targetIdx];
   const slice = (Math.PI * 2) / WHEEL_ORDER.length;
   const targetAngle = -targetIdx * slice;
-  // spin several full turns then land on target
-  const totalRotation = Math.PI * 2 * 6 + targetAngle;
-  const start = performance.now();
-  const dur = 3200;
+  // Spin many full turns. The wheel's current angle is mod 2π — to land
+  // exactly on the target, we need totalRotation - startAngle to equal
+  // (2π * N + targetAngle - startAngle) mod 2π for some N. The simplest
+  // way: pick a large rotation amount, then nudge it so the endpoint
+  // matches.
+  const turns = 14 + Math.floor(Math.random() * 4);
   const startAngle = wheelAngle;
+  // The endpoint needs to satisfy: endAngle mod 2π == targetAngle mod 2π
+  const desiredEnd = startAngle - (Math.PI * 2 * turns);
+  // adjust to land on the target slice
+  let extra = (targetAngle - desiredEnd) % (Math.PI * 2);
+  if (extra > 0) extra -= Math.PI * 2;
+  const totalRotation = desiredEnd + extra;
+  const start = performance.now();
+  const dur = 4800;
   function frame(now) {
     const t = Math.min(1, (now - start) / dur);
-    const eased = 1 - Math.pow(1 - t, 3);
+    // ease-out quint for a dramatic decel
+    const eased = 1 - Math.pow(1 - t, 5);
     wheelAngle = startAngle + (totalRotation - startAngle) * eased;
     drawWheel();
     if (t < 1) requestAnimationFrame(frame);

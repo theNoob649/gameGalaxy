@@ -85,18 +85,24 @@ function tick(ts) {
   const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
   lastTs = ts;
   if (alive) {
-    // controls (ship moves in 2D)
-    const accel = 600;
+    // controls (ship moves in 2D). Heavier acceleration + lighter damping
+    // so the ship is genuinely snappy.
+    const accel = 1800;
+    const maxSpeed = 520;
     if (held("up"))    ship.vy -= accel * dt;
     if (held("down"))  ship.vy += accel * dt;
     if (held("left"))  ship.vx -= accel * dt;
     if (held("right")) ship.vx += accel * dt;
-    ship.vx *= Math.pow(0.85, dt * 60);
-    ship.vy *= Math.pow(0.85, dt * 60);
+    // clamp to a max speed
+    const sp = Math.hypot(ship.vx, ship.vy);
+    if (sp > maxSpeed) { ship.vx *= maxSpeed / sp; ship.vy *= maxSpeed / sp; }
+    // mild damping (was 0.85, now 0.94)
+    ship.vx *= Math.pow(0.94, dt * 60);
+    ship.vy *= Math.pow(0.94, dt * 60);
     ship.x += ship.vx * dt;
     ship.y += ship.vy * dt;
     // soft return-to-left so player doesn't pin to right edge
-    if (ship.x > 240) ship.x -= (ship.x - 240) * 1.5 * dt;
+    if (ship.x > 240) ship.x -= (ship.x - 240) * 1.2 * dt;
     ship.x = Math.max(ship.r, Math.min(W - ship.r, ship.x));
     ship.y = Math.max(ship.r, Math.min(H - ship.r, ship.y));
     // shoot

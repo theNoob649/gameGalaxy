@@ -180,17 +180,27 @@ function buildStrip(reelId, finalSym) {
   stripSyms.push(finalSym);
   stripSyms.push(weightedPick());
   el.innerHTML = stripSyms.map((s) => `<div class="sm-sym">${symbolHtml(s)}</div>`).join("");
-  el.style.transform = "translateY(0)";
   return stripSyms.length;
 }
 
 function spinReel(reelId, finalSym, dur) {
   return new Promise((resolve) => {
-    const count = buildStrip(reelId, finalSym);
     const el = document.getElementById(reelId);
+    // Step 1: hard-reset transition and position with NO animation.
+    el.style.transition = "none";
+    el.style.transform = "translateY(0)";
+    // Step 2: rebuild the strip's contents.
+    const count = buildStrip(reelId, finalSym);
     // The payline is centered vertically. To put the final symbol on the
     // payline, we need to translate so that symbol[count-2] is centered.
     const targetY = -((count - 2) * 90 - 80);
+    // Step 3: force a reflow so the browser sees the "translateY(0) + no
+    // transition" state before we install the new transition. Without this,
+    // the second and subsequent spins keep the old transform and the
+    // animation skips.
+    // eslint-disable-next-line no-unused-expressions
+    el.offsetHeight;
+    // Step 4: install the spin transition and trigger it on the next frame.
     el.style.transition = `transform ${dur}ms cubic-bezier(.2,.6,.4,1)`;
     requestAnimationFrame(() => {
       el.style.transform = `translateY(${targetY}px)`;
