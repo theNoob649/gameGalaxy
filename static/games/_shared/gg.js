@@ -62,7 +62,7 @@
     }
   });
 
-  // Shared "You Win!" overlay — call GG.youWin() from any beatable game.
+  // Shared "You Win!" overlay. Call GG.youWin() from any beatable game.
   function youWin(title, subtitle) {
     if (document.getElementById("gg-win-overlay")) return;
     const ov = document.createElement("div");

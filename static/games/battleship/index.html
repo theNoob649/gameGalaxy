@@ -109,7 +109,7 @@ function newGame() {
   placeIdx = 0;
   placeOrient = "h";
   phase = "place1";
-  showOverlay("Player 1 — place your ships",
+  showOverlay("Player 1, place your ships",
     "When ready, hide the screen from Player 2 before placing.",
     () => render());
 }
@@ -251,7 +251,7 @@ function renderBattle() {
 
   const oppCol = document.createElement("div");
   oppCol.className = "bs-section";
-  oppCol.innerHTML = `<h3>Enemy waters — click to fire</h3>`;
+  oppCol.innerHTML = `<h3>Enemy waters, click to fire</h3>`;
   const oppGrid = document.createElement("div"); oppGrid.className = "bs-board";
   for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
     const cell = document.createElement("div");
@@ -288,7 +288,7 @@ function fireAt(r, c) {
   let resultMsg;
   if (shipIdx === null) {
     myBoard.shots[r][c] = 1;
-    resultMsg = `P${me} fired at ${col(c)}${r + 1} — miss.`;
+    resultMsg = `P${me} fired at ${col(c)}${r + 1}, miss.`;
   } else {
     myBoard.shots[r][c] = 2;
     const ship = oppBoard.ships[shipIdx];

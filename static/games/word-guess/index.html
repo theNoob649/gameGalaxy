@@ -6,10 +6,14 @@
 <title>Word Guess</title>
 <link rel="stylesheet" href="../_shared/game.css">
 <style>
+  .wg-modes { display: flex; gap: 6px; }
+  .wg-modes button.active { border-color: var(--accent); }
   .wg-grid {
     display: grid;
-    grid-template-rows: repeat(6, 56px);
     gap: 6px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 4px;
   }
   .wg-row { display: grid; grid-template-columns: repeat(5, 56px); gap: 6px; }
   .wg-tile {
@@ -19,6 +23,7 @@
     display: grid; place-items: center;
     font-size: 28px; font-weight: 800;
     text-transform: uppercase;
+    width: 56px; height: 56px;
   }
   .wg-tile.filled { border-color: var(--text-dim); }
   .wg-tile.hit   { background: var(--good); border-color: var(--good); color: white; }
@@ -47,12 +52,18 @@
 <body>
 <div class="game-shell">
   <div class="game-hud">
+    <div class="wg-modes">
+      <button class="game-btn" data-mode="daily">Daily</button>
+      <button class="game-btn" data-mode="infinite">Infinite</button>
+      <button class="game-btn" data-mode="unlimited">Unlimited</button>
+    </div>
     <span>Streak: <strong id="streak">0</strong></span>
     <span>Played: <strong id="played">0</strong></span>
     <span>Won: <strong id="won">0</strong></span>
+    <button class="game-btn primary" id="newGame" style="display:none">New word</button>
   </div>
   <div id="grid" class="wg-grid"></div>
-  <div id="msg" class="game-message">Guess today's 5-letter word.</div>
+  <div id="msg" class="game-message">Guess the 5-letter word.</div>
   <div id="keyboard" class="wg-keyboard"></div>
 </div>
 <script src="../_shared/gg.js"></script>
@@ -61,8 +72,9 @@
 const SLUG = "word-guess";
 const ANSWERS = window.GG_ANSWERS;
 const VALID = new Set(window.GG_VALID);
-const ROWS = 6;
 const LEN = 5;
+const DAILY_ROWS = 6;        // daily and infinite both cap at 6 guesses
+const INFINITE_ROWS = 6;
 
 function dayKey() {
   const d = new Date();
@@ -73,23 +85,59 @@ function dayIndex() {
   const epoch = Date.UTC(2024, 0, 1);
   return Math.floor((Date.now() - epoch) / 86400000);
 }
-const TODAY = dayKey();
-const ANSWER = ANSWERS[((dayIndex() % ANSWERS.length) + ANSWERS.length) % ANSWERS.length];
-
-const persisted = GG.load(SLUG, null) || {};
-let state = (persisted.day === TODAY) ? persisted : {
-  day: TODAY,
-  guesses: [],
-  done: false,
-  streak: persisted.streak || 0,
-  played: persisted.played || 0,
-  won: persisted.won || 0,
-  lastWonDay: persisted.lastWonDay || null,
-};
-
-function persist() {
-  GG.save(SLUG, state);
+function dailyAnswer() {
+  return ANSWERS[((dayIndex() % ANSWERS.length) + ANSWERS.length) % ANSWERS.length];
 }
+function randomAnswer() {
+  return ANSWERS[Math.floor(Math.random() * ANSWERS.length)];
+}
+
+// Persisted shape:
+//   { mode, daily: {day, answer, guesses, done, streak, played, won, lastWonDay},
+//     infinite: {answer, guesses, done, played, won, streak},
+//     unlimited: {answer, guesses, done, played, won} }
+const persisted = GG.load(SLUG, null) || {};
+function freshDaily() {
+  return { day: dayKey(), answer: dailyAnswer(), guesses: [], done: false,
+           streak: 0, played: 0, won: 0, lastWonDay: null };
+}
+function freshInfinite() {
+  return { answer: randomAnswer(), guesses: [], done: false, played: 0, won: 0, streak: 0 };
+}
+function freshUnlimited() {
+  return { answer: randomAnswer(), guesses: [], done: false, played: 0, won: 0 };
+}
+
+let state = {
+  mode: persisted.mode || "daily",
+  daily: persisted.daily || freshDaily(),
+  infinite: persisted.infinite || freshInfinite(),
+  unlimited: persisted.unlimited || freshUnlimited(),
+};
+// Migrate old persisted state if present (pre-mode versions kept everything at top level)
+if (!persisted.mode && persisted.day) {
+  state.daily = {
+    day: persisted.day,
+    answer: dailyAnswer(),
+    guesses: persisted.guesses || [],
+    done: persisted.done || false,
+    streak: persisted.streak || 0,
+    played: persisted.played || 0,
+    won: persisted.won || 0,
+    lastWonDay: persisted.lastWonDay || null,
+  };
+}
+// If daily state is from a previous day, refresh it
+if (state.daily.day !== dayKey()) {
+  const prev = state.daily;
+  state.daily = freshDaily();
+  state.daily.streak = prev.streak || 0;
+  state.daily.played = prev.played || 0;
+  state.daily.won = prev.won || 0;
+  state.daily.lastWonDay = prev.lastWonDay || null;
+}
+
+function persist() { GG.save(SLUG, state); }
 
 const gridEl = document.getElementById("grid");
 const kbEl = document.getElementById("keyboard");
@@ -97,13 +145,15 @@ const msgEl = document.getElementById("msg");
 const streakEl = document.getElementById("streak");
 const playedEl = document.getElementById("played");
 const wonEl = document.getElementById("won");
+const newGameBtn = document.getElementById("newGame");
 
 let current = "";
 
-function score(guess) {
+function activeState() { return state[state.mode]; }
+
+function score(guess, answer) {
   const result = Array(LEN).fill("miss");
-  const ans = ANSWER.split("");
-  // mark hits
+  const ans = answer.split("");
   for (let i = 0; i < LEN; i++) {
     if (guess[i] === ans[i]) { result[i] = "hit"; ans[i] = null; }
   }
@@ -115,20 +165,30 @@ function score(guess) {
   return result;
 }
 
+function maxRowsForMode() {
+  if (state.mode === "unlimited") return activeState().guesses.length + 1;
+  return state.mode === "infinite" ? INFINITE_ROWS : DAILY_ROWS;
+}
+
 function renderGrid() {
+  const s = activeState();
+  const rows = state.mode === "unlimited"
+    ? s.guesses.length + (s.done ? 0 : 1)
+    : (state.mode === "infinite" ? INFINITE_ROWS : DAILY_ROWS);
+  gridEl.style.gridTemplateRows = `repeat(${rows}, 56px)`;
   gridEl.innerHTML = "";
-  for (let r = 0; r < ROWS; r++) {
+  for (let r = 0; r < rows; r++) {
     const row = document.createElement("div");
     row.className = "wg-row";
     for (let c = 0; c < LEN; c++) {
       const t = document.createElement("div");
       t.className = "wg-tile";
-      if (r < state.guesses.length) {
-        const g = state.guesses[r];
-        const s = score(g);
+      if (r < s.guesses.length) {
+        const g = s.guesses[r];
+        const sc = score(g, s.answer);
         t.textContent = g[c];
-        t.classList.add(s[c]);
-      } else if (r === state.guesses.length) {
+        t.classList.add(sc[c]);
+      } else if (r === s.guesses.length) {
         t.textContent = current[c] || "";
         if (current[c]) t.classList.add("filled");
       }
@@ -136,20 +196,21 @@ function renderGrid() {
     }
     gridEl.appendChild(row);
   }
-  streakEl.textContent = state.streak;
-  playedEl.textContent = state.played;
-  wonEl.textContent = state.won;
+  streakEl.textContent = s.streak || 0;
+  playedEl.textContent = s.played || 0;
+  wonEl.textContent = s.won || 0;
   renderKeyboard();
 }
 
 function bestStateForLetter(letter) {
-  let best = null; // miss < near < hit
+  const s = activeState();
+  let best = null;
   const order = { miss: 0, near: 1, hit: 2 };
-  for (const g of state.guesses) {
-    const s = score(g);
+  for (const g of s.guesses) {
+    const sc = score(g, s.answer);
     for (let i = 0; i < LEN; i++) {
       if (g[i] === letter) {
-        if (best == null || order[s[i]] > order[best]) best = s[i];
+        if (best == null || order[sc[i]] > order[best]) best = sc[i];
       }
     }
   }
@@ -167,7 +228,12 @@ function renderKeyboard() {
       key.className = "wg-key";
       if (ch === "@") { key.classList.add("wide"); key.textContent = "Enter"; key.dataset.k = "Enter"; }
       else if (ch === "#") { key.classList.add("wide"); key.textContent = "⌫"; key.dataset.k = "Backspace"; }
-      else { key.textContent = ch.toUpperCase(); key.dataset.k = ch; const st = bestStateForLetter(ch); if (st) key.classList.add(st); }
+      else {
+        key.textContent = ch.toUpperCase();
+        key.dataset.k = ch;
+        const st = bestStateForLetter(ch);
+        if (st) key.classList.add(st);
+      }
       key.addEventListener("click", () => handleKey(key.dataset.k));
       r.appendChild(key);
     }
@@ -176,7 +242,8 @@ function renderKeyboard() {
 }
 
 function handleKey(k) {
-  if (state.done) return;
+  const s = activeState();
+  if (s.done) return;
   if (k === "Enter") {
     if (current.length !== LEN) { flash("Need 5 letters."); return; }
     if (!VALID.has(current)) { flash("Not in the word list."); return; }
@@ -195,32 +262,57 @@ function handleKey(k) {
 function flash(text) {
   msgEl.textContent = text;
   setTimeout(() => {
-    if (state.done) return;
-    msgEl.textContent = "Guess today's 5-letter word.";
+    const s = activeState();
+    if (s.done) return;
+    msgEl.textContent = "Guess the 5-letter word.";
   }, 1500);
 }
 
 function submit(guess) {
-  state.guesses.push(guess);
-  if (guess === ANSWER) {
-    state.done = true; state.played++;
-    state.won++;
-    // streak: contiguous days won
-    const yesterday = (() => {
-      const d = new Date(TODAY + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1);
-      return d.toISOString().slice(0, 10);
-    })();
-    state.streak = (state.lastWonDay === yesterday || state.lastWonDay === TODAY)
-      ? (state.streak || 0) + (state.lastWonDay === TODAY ? 0 : 1)
-      : 1;
-    state.lastWonDay = TODAY;
-    msgEl.textContent = `Got it in ${state.guesses.length}!`;
-    if (window.GG && GG.youWin) GG.youWin("You Win!", `Got "${ANSWER.toUpperCase()}" in ${state.guesses.length}/${ROWS}. Streak: ${state.streak}.`);
-  } else if (state.guesses.length >= ROWS) {
-    state.done = true; state.played++;
-    state.streak = 0;
-    msgEl.textContent = `Out of guesses. Word was "${ANSWER.toUpperCase()}".`;
-    if (window.GG && GG.youLose) GG.youLose("You Lose", `The word was "${ANSWER.toUpperCase()}". Come back tomorrow.`);
+  const s = activeState();
+  s.guesses.push(guess);
+  const correct = guess === s.answer;
+
+  if (state.mode === "daily") {
+    if (correct) {
+      s.done = true; s.played++; s.won++;
+      const yesterday = (() => {
+        const d = new Date(s.day + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1);
+        return d.toISOString().slice(0, 10);
+      })();
+      s.streak = (s.lastWonDay === yesterday || s.lastWonDay === s.day)
+        ? (s.streak || 0) + (s.lastWonDay === s.day ? 0 : 1)
+        : 1;
+      s.lastWonDay = s.day;
+      msgEl.textContent = `Got it in ${s.guesses.length}.`;
+      if (window.GG && GG.youWin) GG.youWin("You Win!", `Got "${s.answer.toUpperCase()}" in ${s.guesses.length}/${DAILY_ROWS}. Streak: ${s.streak}.`);
+    } else if (s.guesses.length >= DAILY_ROWS) {
+      s.done = true; s.played++; s.streak = 0;
+      msgEl.textContent = `Out of guesses. Word was "${s.answer.toUpperCase()}".`;
+      if (window.GG && GG.youLose) GG.youLose("You Lose", `The word was "${s.answer.toUpperCase()}". Come back tomorrow.`);
+    }
+  } else if (state.mode === "infinite") {
+    if (correct) {
+      s.played++; s.won++; s.streak = (s.streak || 0) + 1;
+      msgEl.textContent = `Got it in ${s.guesses.length}. New word.`;
+      // Start a fresh word right away
+      s.answer = randomAnswer();
+      s.guesses = [];
+      s.done = false;
+    } else if (s.guesses.length >= INFINITE_ROWS) {
+      s.done = true; s.played++; s.streak = 0;
+      msgEl.textContent = `Out of guesses. Word was "${s.answer.toUpperCase()}".`;
+      newGameBtn.style.display = "";
+      if (window.GG && GG.youLose) GG.youLose("You Lose", `Streak ended. Word was "${s.answer.toUpperCase()}".`);
+    }
+  } else { // unlimited: cannot fail
+    if (correct) {
+      s.done = true; s.played++; s.won++;
+      msgEl.textContent = `Solved in ${s.guesses.length} guesses.`;
+      newGameBtn.style.display = "";
+      if (window.GG && GG.youWin) GG.youWin("You Win!", `Got "${s.answer.toUpperCase()}" in ${s.guesses.length} guesses.`);
+    }
+    // no fail path, grid just expands
   }
   persist();
 }
@@ -232,13 +324,44 @@ window.addEventListener("keydown", (e) => {
   else if (/^[a-z]$/i.test(e.key)) handleKey(e.key);
 });
 
-if (state.done) {
-  msgEl.textContent = state.guesses[state.guesses.length - 1] === ANSWER
-    ? `You solved today's puzzle in ${state.guesses.length}.`
-    : `Today's word was "${ANSWER.toUpperCase()}". Come back tomorrow.`;
+// --- mode buttons ---
+function setMode(m) {
+  state.mode = m;
+  current = "";
+  document.querySelectorAll(".wg-modes button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.mode === m));
+  const s = activeState();
+  newGameBtn.style.display = s.done && state.mode !== "daily" ? "" : "none";
+  msgEl.textContent = m === "daily"
+    ? "Guess today's 5-letter word."
+    : m === "infinite"
+    ? "Solve to start a new word automatically. 6 guesses each."
+    : "Unlimited guesses. The grid grows until you find the word.";
+  if (s.done && state.mode === "daily") {
+    const last = s.guesses[s.guesses.length - 1];
+    msgEl.textContent = last === s.answer
+      ? `Solved today in ${s.guesses.length}.`
+      : `Today's word was "${s.answer.toUpperCase()}". Come back tomorrow.`;
+  }
+  persist();
+  renderGrid();
 }
 
-renderGrid();
+document.querySelectorAll(".wg-modes button").forEach((b) => {
+  b.addEventListener("click", () => setMode(b.dataset.mode));
+});
+
+newGameBtn.addEventListener("click", () => {
+  if (state.mode === "infinite") state.infinite = freshInfinite();
+  else if (state.mode === "unlimited") state.unlimited = freshUnlimited();
+  current = "";
+  newGameBtn.style.display = "none";
+  persist();
+  renderGrid();
+  msgEl.textContent = "New word. Good luck.";
+});
+
+setMode(state.mode);
 </script>
 </body>
 </html>

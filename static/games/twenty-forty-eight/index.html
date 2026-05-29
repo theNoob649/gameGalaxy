@@ -198,7 +198,7 @@ function move(direction) {
   const occupancy = Array.from({ length: N }, () => Array(N).fill(null));
   for (const t of tiles) occupancy[t.r][t.c] = t;
 
-  const merges = []; // {keep: tile, into: tile}  — into is moved on top of keep then removed
+  const merges = []; // {keep: tile, into: tile}, into is moved on top of keep then removed
   let changed = false;
   let gained = 0;
 

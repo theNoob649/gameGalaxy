@@ -249,7 +249,7 @@ a:hover { color: var(--accent-2); }
   border-radius: 6px;
   z-index: 1;
 }
-/* Accent corner glow over the thumbnail — keeps the card lively. */
+/* Accent corner glow over the thumbnail, keeps the card lively. */
 .game-card-art::after {
   content: "";
   position: absolute;

@@ -58,6 +58,40 @@ function newMatch() {
   reset(Math.random() < 0.5 ? 1 : 2);
 }
 
+function collidePaddle(px, py, pw, ph, isLeft) {
+  const R = 8;
+  const left = px - R, right = px + pw + R, top = py - R, bottom = py + ph + R;
+  if (ball.x < left || ball.x > right || ball.y < top || ball.y > bottom) return;
+  // Already overlapping. Resolve along the shallowest axis.
+  const penLeft   = ball.x - left;
+  const penRight  = right - ball.x;
+  const penTop    = ball.y - top;
+  const penBottom = bottom - ball.y;
+  const minHoriz = Math.min(penLeft, penRight);
+  const minVert  = Math.min(penTop, penBottom);
+  if (minHoriz < minVert) {
+    // bounce off the long (left/right) face of the paddle
+    if (isLeft) {
+      ball.x = right;
+      ball.vx = Math.abs(ball.vx) * 1.06;
+    } else {
+      ball.x = left;
+      ball.vx = -Math.abs(ball.vx) * 1.06;
+    }
+    const off = (ball.y - (py + ph / 2)) / (ph / 2);
+    ball.vy = off * 320;
+  } else {
+    // ball grazed the top or bottom of the paddle, deflect vertically only
+    if (penTop < penBottom) {
+      ball.y = top;
+      ball.vy = -Math.abs(ball.vy);
+    } else {
+      ball.y = bottom;
+      ball.vy = Math.abs(ball.vy);
+    }
+  }
+}
+
 let lastTs = 0;
 function tick(ts) {
   const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
@@ -74,21 +108,17 @@ function tick(ts) {
 
     // ball
     if (ts >= pauseUntil) {
+      const R = 8;
       ball.x += ball.vx * dt;
       ball.y += ball.vy * dt;
-      if (ball.y < 8) { ball.y = 8; ball.vy = -ball.vy; }
-      else if (ball.y > H - 8) { ball.y = H - 8; ball.vy = -ball.vy; }
-      // paddle hits
-      if (ball.x < 24 && ball.x > 12 && ball.y >= p1y && ball.y <= p1y + PADDLE_H && ball.vx < 0) {
-        ball.vx = -ball.vx * 1.06;
-        const off = (ball.y - (p1y + PADDLE_H / 2)) / (PADDLE_H / 2);
-        ball.vy = off * 320;
-      }
-      if (ball.x > W - 24 && ball.x < W - 12 && ball.y >= p2y && ball.y <= p2y + PADDLE_H && ball.vx > 0) {
-        ball.vx = -ball.vx * 1.06;
-        const off = (ball.y - (p2y + PADDLE_H / 2)) / (PADDLE_H / 2);
-        ball.vy = off * 320;
-      }
+      if (ball.y - R < 0)        { ball.y = R;        ball.vy =  Math.abs(ball.vy); }
+      else if (ball.y + R > H)   { ball.y = H - R;    ball.vy = -Math.abs(ball.vy); }
+      // Resolve paddle collisions as AABB-vs-circle: if ball overlaps a paddle
+      // expanded by R, find the shallowest penetration axis and bounce on that
+      // axis. This fixes corner clipping where the ball used to slip past the
+      // top or bottom edge of the paddle.
+      collidePaddle(12,         p1y, PADDLE_W, PADDLE_H, true);
+      collidePaddle(W - 12 - PADDLE_W, p2y, PADDLE_W, PADDLE_H, false);
       // cap speed
       const sp = Math.hypot(ball.vx, ball.vy);
       if (sp > 720) { ball.vx *= 720 / sp; ball.vy *= 720 / sp; }

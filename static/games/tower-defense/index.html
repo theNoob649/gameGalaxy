@@ -6,12 +6,48 @@
 <title>Tower Defense</title>
 <link rel="stylesheet" href="../_shared/game.css">
 <style>
-  .td-layout { display: grid; grid-template-columns: 1fr 240px; gap: 10px; width: 100%; max-width: 1000px; }
+  .td-layout { display: grid; grid-template-columns: 1fr 260px; gap: 10px; width: 100%; max-width: 1020px; }
   .td-stage { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 6px; box-shadow: 0 8px 30px rgba(0,0,0,0.45); }
   canvas { display: block; cursor: crosshair; border-radius: 10px; }
   .td-side { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 12px; font-size: 13px; }
-  .td-stats { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--text-dim); margin-bottom: 8px; }
-  .td-stats strong { color: var(--text); }
+
+  /* Clear stat tiles instead of one inline row */
+  .td-stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .td-stat {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+  }
+  .td-stat .label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .td-stat .value { font-size: 18px; font-weight: 800; color: var(--text); }
+  .td-stat.warn .value { color: #fcd34d; }
+  .td-stat.crit .value { color: var(--bad); }
+  .td-stat.money .value { color: var(--good); }
+  .td-stat.wide { grid-column: span 2; display: flex; justify-content: space-between; align-items: center; }
+
+  .td-wave-bar {
+    height: 6px; border-radius: 3px;
+    background: var(--bg);
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .td-wave-bar > div {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width 0.3s ease;
+  }
+
   .td-towerlist { display: flex; flex-direction: column; gap: 6px; }
   .td-tower {
     text-align: left; background: var(--panel-2); border: 1px solid var(--border);
@@ -23,32 +59,78 @@
   .td-tower-name { font-weight: 700; }
   .td-tower-cost { color: var(--good); }
   .td-tower-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
-  .td-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .td-controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .td-controls button.active { border-color: var(--accent); }
-  .td-section-title { text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; color: var(--text-dim); margin: 6px 0; }
+  .td-divider {
+    display: inline-block;
+    width: 1px; height: 22px;
+    background: var(--border);
+    margin: 0 4px;
+  }
+  .td-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .td-pill strong { color: var(--text); }
+
+  .td-section-title { text-transform: uppercase; letter-spacing: 0.06em; font-size: 11px; color: var(--text-dim); margin: 8px 0 6px; }
   @media (max-width: 760px) { .td-layout { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <div class="game-shell">
   <div class="td-controls" style="margin-bottom: 6px;">
+    <span class="td-pill">Map:</span>
     <button class="game-btn" data-map="path">The Path</button>
     <button class="game-btn" data-map="fork">The Fork</button>
     <button class="game-btn" data-map="maze">The Maze</button>
+    <span class="td-divider"></span>
+    <span class="td-pill">Difficulty:</span>
+    <button class="game-btn" data-dif="easy">Easy</button>
+    <button class="game-btn" data-dif="medium">Medium</button>
+    <button class="game-btn" data-dif="hard">Hard</button>
+    <span class="td-divider"></span>
     <button class="game-btn primary" id="newgame">New game</button>
     <button class="game-btn" id="pause">Pause</button>
-    <button class="game-btn" id="speed">1×</button>
+    <button class="game-btn" id="speed">1x</button>
   </div>
   <div class="td-layout">
     <div class="td-stage"><canvas id="cv" width="640" height="420"></canvas></div>
     <div class="td-side">
-      <div class="td-stats">
-        <span>Wave <strong id="wave">0</strong>/30</span>
-        <span>$<strong id="money">100</strong></span>
-        <span>Health <strong id="lives">20</strong></span>
-        <span>Kills <strong id="kills">0</strong></span>
+      <div class="td-stat-grid">
+        <div class="td-stat wide">
+          <div>
+            <div class="label">Wave</div>
+            <div class="value"><span id="wave">0</span> / 30</div>
+          </div>
+          <div style="text-align: right; font-size: 11px; color: var(--text-dim);">
+            <div id="difLabel">Easy</div>
+          </div>
+        </div>
+        <div class="td-stat money">
+          <div class="label">Money</div>
+          <div class="value">$<span id="money">100</span></div>
+        </div>
+        <div class="td-stat" id="healthStat">
+          <div class="label">Health</div>
+          <div class="value"><span id="lives">20</span></div>
+        </div>
+        <div class="td-stat wide">
+          <div style="flex: 1;">
+            <div class="label">Kills</div>
+            <div class="value"><span id="kills">0</span></div>
+          </div>
+        </div>
       </div>
-      <button class="game-btn primary" id="nextWave" style="width: 100%; margin-bottom: 8px;">Start wave</button>
+      <button class="game-btn primary" id="nextWave" style="width: 100%; margin-bottom: 10px;">Start wave</button>
       <div class="td-section-title">Build</div>
       <div class="td-towerlist" id="towers"></div>
       <div class="td-section-title" id="upgradeTitle" style="display:none;">Selected Tower</div>
@@ -57,7 +139,7 @@
       <div id="bests" style="color: var(--text-dim);"></div>
     </div>
   </div>
-  <div class="game-message" id="msg">Pick a map, place towers on the grid, then start the wave.</div>
+  <div class="game-message" id="msg">Pick a map, set a difficulty, place towers, then start the wave.</div>
 </div>
 <script src="../_shared/gg.js"></script>
 <script>
@@ -65,9 +147,16 @@ const SLUG = "tower-defense";
 const CELL = 40;
 
 let saved = GG.load(SLUG, {
-  mapsBeaten: [], bestWaveByMap: {}, totalEnemiesKilled: 0,
+  mapsBeaten: [], bestWaveByMap: {}, totalEnemiesKilled: 0, difficulty: "easy",
 }) || {};
-saved = Object.assign({ mapsBeaten: [], bestWaveByMap: {}, totalEnemiesKilled: 0 }, saved);
+saved = Object.assign({ mapsBeaten: [], bestWaveByMap: {}, totalEnemiesKilled: 0, difficulty: "easy" }, saved);
+
+const DIFFICULTIES = {
+  easy:   { name: "Easy",   health: 20, label: "Easy, 20 health" },
+  medium: { name: "Medium", health: 10, label: "Medium, 10 health" },
+  hard:   { name: "Hard",   health: 5,  label: "Hard, 5 health" },
+};
+let difficulty = DIFFICULTIES[saved.difficulty] ? saved.difficulty : "easy";
 
 // Maps: define a list of waypoints + a buildable mask.
 const MAPS = {
@@ -230,7 +319,7 @@ function generateWave(n) {
     return out;
   }
 
-  // Regular waves — counts ramp faster than before
+  // Regular waves, counts ramp faster than before
   const grunts = 5 + Math.floor(n * 1.8);
   for (let i = 0; i < grunts; i++) out.push({ kind: "grunt", gap: 0.45 });
   if (n >= 2) for (let i = 0; i < 4 + Math.floor(n * 1.2); i++) out.push({ kind: "fast", gap: 0.3 });
@@ -325,7 +414,7 @@ function renderUpgradePanel() {
 }
 
 // --- input ---
-let hoverCell = null;  // {r, c} or null — used to preview the tower being placed
+let hoverCell = null;  // {r, c} or null, used to preview the tower being placed
 function cellFromEvent(e) {
   const rect = cv.getBoundingClientRect();
   const mx = (e.clientX - rect.left) * cv.width / rect.width;
@@ -388,6 +477,17 @@ document.querySelectorAll('[data-map]').forEach((b) => {
 });
 document.querySelector('[data-map="path"]').classList.add("active");
 
+document.querySelectorAll('[data-dif]').forEach((b) => {
+  b.addEventListener("click", () => {
+    document.querySelectorAll('[data-dif]').forEach((x) => x.classList.toggle("active", x === b));
+    difficulty = b.dataset.dif;
+    saved.difficulty = difficulty;
+    GG.save(SLUG, saved);
+    newGame();
+  });
+});
+document.querySelector(`[data-dif="${difficulty}"]`).classList.add("active");
+
 document.getElementById("newgame").addEventListener("click", newGame);
 document.getElementById("pause").addEventListener("click", (e) => {
   paused = !paused;
@@ -395,7 +495,7 @@ document.getElementById("pause").addEventListener("click", (e) => {
 });
 document.getElementById("speed").addEventListener("click", (e) => {
   speedMult = speedMult === 1 ? 2 : speedMult === 2 ? 4 : 1;
-  e.target.textContent = speedMult + "×";
+  e.target.textContent = speedMult + "x";
 });
 document.getElementById("nextWave").addEventListener("click", () => {
   if (lostGame || wonGame) return;
@@ -410,7 +510,9 @@ document.getElementById("nextWave").addEventListener("click", () => {
 function newGame() {
   loadMap(mapId);
   towers = []; enemies = []; bullets = [];
-  money = 100; lives = 20; wave = 0; kills = 0;
+  money = 100;
+  lives = DIFFICULTIES[difficulty].health;
+  wave = 0; kills = 0;
   inWave = false; pendingSpawns = []; lostGame = false; wonGame = false;
   paused = false;
   selectedToBuy = null; selectedTower = null;
@@ -419,10 +521,21 @@ function newGame() {
   livesEl.textContent = lives;
   waveEl.textContent = 0;
   killsEl.textContent = 0;
+  updateHealthTone();
+  document.getElementById("difLabel").textContent = DIFFICULTIES[difficulty].label;
   msgEl.textContent = "Place towers, then start the wave.";
   renderTowersList();
   renderUpgradePanel();
   updateBests();
+}
+
+function updateHealthTone() {
+  const stat = document.getElementById("healthStat");
+  if (!stat) return;
+  const max = DIFFICULTIES[difficulty].health;
+  const r = lives / max;
+  stat.classList.toggle("warn", r > 0.25 && r <= 0.5);
+  stat.classList.toggle("crit", r <= 0.25);
 }
 
 function updateBests() {
@@ -469,7 +582,7 @@ function onWaveCleared() {
     wonGame = true;
     msgEl.textContent = `You beat ${mapId.toUpperCase()} in 30 waves!`;
     if (!saved.mapsBeaten.includes(mapId)) saved.mapsBeaten.push(mapId);
-    if (window.GG && GG.youWin) GG.youWin("You Win!", `Cleared ${mapId.toUpperCase()} — 30 waves survived.`);
+    if (window.GG && GG.youWin) GG.youWin("You Win!", `Cleared ${mapId.toUpperCase()}. 30 waves survived.`);
   }
   saved.bestWaveByMap[mapId] = Math.max(saved.bestWaveByMap[mapId] || 0, wave);
   GG.save(SLUG, saved);
@@ -493,7 +606,7 @@ function tick(now) {
     draw();
   } catch (err) {
     console.error("Tower Defense tick error:", err);
-    msgEl.textContent = "Game error: " + err.message + " — see console.";
+    msgEl.textContent = "Game error: " + err.message + ". See console.";
   }
   requestAnimationFrame(tick);
 }
@@ -515,6 +628,7 @@ function moveEnemies(dt) {
       enemies = enemies.filter((x) => x !== e);
       lives--;
       livesEl.textContent = lives;
+      updateHealthTone();
       if (lives <= 0) gameOver();
     }
   }
@@ -695,7 +809,7 @@ function draw() {
     const baseR = 14 + t.level * 2;
     ctx.fillStyle = TOWERS[t.kind].color;
     ctx.beginPath(); ctx.arc(t.x, t.y, baseR, 0, Math.PI * 2); ctx.fill();
-    // upgrade stripes — 1 ring at lvl 0, 2 at lvl 1, 3 at lvl 2 (= max)
+    // upgrade stripes, 1 ring at lvl 0, 2 at lvl 1, 3 at lvl 2 (= max)
     ctx.lineWidth = 2;
     ctx.strokeStyle = "rgba(255,255,255,0.85)";
     for (let i = 0; i <= t.level; i++) {
@@ -833,7 +947,7 @@ function drawBullet(b) {
     ctx.fillStyle = "rgba(255,255,255,0.8)";
     ctx.fillRect(b.x - b.size + 1, b.y - b.size + 1, b.size, b.size);
   } else {
-    // basic bolt — round, glowing
+    // basic bolt, round, glowing
     ctx.fillStyle = b.color;
     ctx.shadowColor = b.color;
     ctx.shadowBlur = 6;

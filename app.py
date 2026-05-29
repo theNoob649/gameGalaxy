@@ -101,7 +101,7 @@ GAMES = [
         "slug": "draw-guess",
         "title": "Drawing & Guess",
         "category": "Creative",
-        "blurb": "Get a prompt. Draw it. Save it. No judging — just fun.",
+        "blurb": "Get a prompt. Draw it. Save it. No judging, just fun.",
         "color": "#34d399",
     },
     {

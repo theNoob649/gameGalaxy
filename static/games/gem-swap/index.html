@@ -218,7 +218,7 @@ async function animateSwap(a, b) {
   const dr = b.r - a.r, dc = b.c - a.c;
   const ga = board[a.r][a.c], gb = board[b.r][b.c];
   // Each gem starts at its destination (logically) but with an offset that animates toward 0.
-  // After we swap logically, the gem now at (a) used to be at (b) — start its display at +dc, +dr offset.
+  // After we swap logically, the gem now at (a) used to be at (b), start its display at +dc, +dr offset.
   ga.dx = dc * CELL; ga.dy = dr * CELL;
   gb.dx = -dc * CELL; gb.dy = -dr * CELL;
   // swap logically
@@ -348,7 +348,7 @@ async function resolve(swapHint) {
   }
   GG.save(SLUG, saved);
   if (!hasMove()) {
-    msgEl.textContent = "No moves — shuffling.";
+    msgEl.textContent = "No moves. Shuffling.";
     shuffle();
     await gravityAndRefillV2();
     return resolve();
@@ -437,7 +437,7 @@ cv.addEventListener("pointerup", (e) => {
   const cell = cellAt(e);
   pointerStart = null;
   if (!inBounds(cell.r, cell.c)) return;
-  // pure click — manage selection
+  // pure click, manage selection
   if (!selected) {
     selected = cell;
     return;

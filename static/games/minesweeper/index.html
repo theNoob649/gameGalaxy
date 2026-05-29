@@ -47,7 +47,7 @@
     </div>
     <span>Mines: <strong id="mines">0</strong></span>
     <span>Time: <strong id="time">0s</strong></span>
-    <span>Best: <strong id="best">—</strong></span>
+    <span>Best: <strong id="best">-</strong></span>
     <button class="game-btn primary" id="newGame">New game</button>
   </div>
   <div id="board" class="ms-board"></div>
@@ -90,7 +90,7 @@ function newGame() {
   firstClick = true; revealed = 0; flagged = 0; over = false;
   msgEl.textContent = "Left-click reveals. Right-click flags.";
   minesEl.textContent = mineCount;
-  bestEl.textContent = bestTimes[dif] != null ? bestTimes[dif] + "s" : "—";
+  bestEl.textContent = bestTimes[dif] != null ? bestTimes[dif] + "s" : "-";
   render();
 }
 

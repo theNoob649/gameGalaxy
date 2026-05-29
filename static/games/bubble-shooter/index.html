@@ -308,7 +308,7 @@ function addRowAbove() {
   for (let c = 0; c < cols; c++) newRow.push(Math.floor(Math.random() * COLORS.length));
   grid.unshift(newRow);
   // (rows stay same length per parity since we insert; the parity of rows below flips conceptually,
-  //  but neighborCoords uses r%2 which now matches the new offsets — fine.)
+  //  but neighborCoords uses r%2 which now matches the new offsets, fine.)
 }
 
 function gridReachesBottom() {

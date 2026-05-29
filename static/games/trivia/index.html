@@ -51,7 +51,7 @@
     <span>Score: <strong id="score">0</strong></span>
     <span>Streak: <strong id="streak">0</strong></span>
     <span>Best streak: <strong id="bestStreak">0</strong></span>
-    <span>Lives: <strong id="lives">—</strong></span>
+    <span>Lives: <strong id="lives">-</strong></span>
   </div>
   <div class="tr-wrap">
     <div class="tr-cat-row" id="modes">
@@ -177,7 +177,7 @@ async function nextQuestion() {
   await fillCache();
   current = cache.shift();
   if (!current) {
-    msgEl.textContent = "No questions available — try another category.";
+    msgEl.textContent = "No questions available. Try another category.";
     return;
   }
   questionsThisRound++;
@@ -259,7 +259,7 @@ function startRound() {
   questionsThisRound = 0;
   scoreEl.textContent = 0; streakEl.textContent = 0;
   if (mode === "survival") { lives = 3; livesEl.textContent = lives; }
-  else { lives = Infinity; livesEl.textContent = "—"; }
+  else { lives = Infinity; livesEl.textContent = "-"; }
   cache = [];  // refresh cache so category change takes effect
   nextQuestion();
 }

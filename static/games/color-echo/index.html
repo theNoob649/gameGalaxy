@@ -77,7 +77,7 @@ saved = Object.assign({
   bestSequenceClassic: 0, bestSequenceSpeed: 0, bestSequenceReverse: 0, totalRoundsPlayed: 0,
 }, saved);
 
-// Web Audio for tones — distinct pitch per pad.
+// Web Audio for tones, distinct pitch per pad.
 const audio = new (window.AudioContext || window.webkitAudioContext)();
 const PAD_FREQ = [330, 261.63, 392, 220]; // green, red, yellow, blue
 function beep(idx, dur = 0.32) {

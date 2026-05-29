@@ -48,16 +48,16 @@
       <h2>Player 1</h2>
       <div class="rps-keys">A = Rock · S = Paper · D = Scissors</div>
       <div class="rps-pick" id="pick1">?</div>
-      <div class="rps-status" id="status1">—</div>
+      <div class="rps-status" id="status1">-</div>
     </div>
     <div class="rps-side">
       <h2>Player 2</h2>
       <div class="rps-keys">J = Rock · K = Paper · L = Scissors</div>
       <div class="rps-pick" id="pick2">?</div>
-      <div class="rps-status" id="status2">—</div>
+      <div class="rps-status" id="status2">-</div>
     </div>
   </div>
-  <div class="game-message" id="msg">First to 3 wins. Pick at the same time — picks stay hidden until reveal.</div>
+  <div class="game-message" id="msg">First to 3 wins. Pick at the same time. Picks stay hidden until reveal.</div>
 </div>
 <script src="../_shared/gg.js"></script>
 <script>
@@ -85,7 +85,7 @@ function reset(newMatch) {
   p1Pick = null; p2Pick = null;
   pick1.textContent = "?"; pick1.classList.remove("ready");
   pick2.textContent = "?"; pick2.classList.remove("ready");
-  status1.textContent = "—"; status2.textContent = "—";
+  status1.textContent = "-"; status2.textContent = "-";
 }
 
 function reveal() {
