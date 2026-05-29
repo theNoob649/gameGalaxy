@@ -146,5 +146,18 @@
     });
   }
 
+  // Global click flash on every .game-btn so the user always gets clear
+  // visual confirmation that a click was received. This is independent of
+  // whatever the click handler does (so it confirms input even before any
+  // game logic runs).
+  document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".game-btn");
+    if (!btn) return;
+    btn.classList.remove("flash");
+    // Force reflow so the animation can re-trigger on rapid clicks.
+    void btn.offsetWidth;
+    btn.classList.add("flash");
+  }, true);
+
   window.GG = { save, load, loadFromHost, youWin, youLose };
 })();
