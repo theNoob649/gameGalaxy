@@ -342,31 +342,42 @@ def _thumb_url(slug):
 # Any device that hasn't seen this exact string before will see the update
 # popup once on their next visit. Once dismissed, the string is stored in
 # localStorage and they don't see it again until the next bump.
-SITE_VERSION = "2026-05-29.a"
+SITE_VERSION = "2026-05-29.b"
 
 UPDATE_NOTES = {
     "version": SITE_VERSION,
     "added": [
-        "Sort/Order dropdown next to the Category filter (Recommended, Newest, Oldest, A-Z, Z-A).",
-        "This update popup. You'll see it once per device when the site updates, then never again until the next update.",
-        "Three new games: Asteroid Runner, Higher or Lower, Mastermind.",
-        "Two new casino games: Roulette and Slot Machine.",
-        "WASD movement support in Tetris, Pac-Man, Space Invaders, Breakout, and Frogger.",
-        "'Play again' button on every win/lose popup that restarts the game in one click.",
+        "Sort dropdown next to the Category filter: Recommended, Newest, Oldest, A-Z, Z-A.",
+        "This update popup. You'll see it once per device when the site updates, then never again until the next one.",
+        "Casino category with four gambling games: Blackjack, Roulette, Slot Machine, Higher or Lower, Plinko.",
+        "Arcade classics: Tetris, Pac-Man, Asteroids, Space Invaders, Breakout, Frogger, Chrome Dino.",
+        "8 local 2-player games: Pong, Connect Four, Checkers, Battleship, Tank Battle, Sumo Smash, Reaction Duel, Rock Paper Scissors.",
+        "More skill and reflex games: Stick Hero, Asteroid Runner, Tower Defense, Bubble Shooter, Bejeweled.",
+        "Word & memory games: Wordle, Hangman, Word Search, Simon, Typing Race, Mastermind, Trivia.",
+        "Idle and creative: Coal Clicker, Drawing & Guess, Color Switch, Stack Tower, Lockpick, Whack-a-Mole.",
+        "Real gameplay thumbnails for every game on the catalog page.",
+        "Themed dark scrollbars site-wide.",
+        "Fullscreen button on every game page.",
+        "Play again button on every win/lose popup that restarts the game in one click.",
+        "WASD movement as an alternative to arrow keys across the arcade games.",
+        "Wordle modes: Daily, Infinite (new word after each solve), Unlimited (grid grows until you crack it).",
     ],
     "changed": [
-        "Pac-Man: bigger tiles, ghosts no longer respawn inside walls, smarter ghost AI.",
-        "Tower Defense: difficulty selector (Easy 20 / Medium 10 / Hard 5 health) and clearer HUD.",
+        "Pac-Man: bigger tiles, ghosts no longer respawn inside walls, smarter ghost AI, and a properly closed maze.",
+        "Tower Defense: difficulty selector (Easy 20 / Medium 10 / Hard 5 health), 30-wave campaign, and clearer HUD.",
         "Stick Hero: the hero always walks the stick now and falls off the end if it's too long or too short.",
-        "Plinko: payout buckets are visible now (no longer cropped).",
-        "Roulette: wheel spins much longer and more dramatically.",
-        "Slot Machine: animation works on every spin instead of only the first.",
+        "Plinko: payout buckets are visible and properly labeled.",
+        "Roulette: wheel spin runs 14 to 17 full turns and lasts ~5 seconds for proper drama.",
+        "Slot Machine: animation works on every spin, not just the first.",
         "Asteroid Runner: ship is much more responsive.",
         "Pong: ball no longer clips through the corners of the paddles.",
+        "Sky Runner replaced by Chrome Dino as the runner-genre game.",
         "Every button now visibly presses and pulses on click so you can tell it registered.",
+        "Catalog card art uses real screenshots framed with each game's accent color.",
     ],
     "removed": [
-        "Sky Runner (replaced by Chrome Dino as the runner-genre game).",
+        "Sign-up and login. Saves now live on your device only.",
+        "Sky Runner (replaced by Chrome Dino).",
     ],
 }
 

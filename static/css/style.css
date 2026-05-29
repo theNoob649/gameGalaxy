@@ -212,6 +212,10 @@ a:hover { color: var(--accent-2); }
 }
 
 /* Update popup */
+/* The HTML `hidden` attribute defaults to display:none, but our overlay
+   sets display:grid which would otherwise override it. The [hidden]
+   selector with !important guarantees hidden actually hides. */
+.update-overlay[hidden] { display: none !important; }
 .update-overlay {
   position: fixed;
   inset: 0;
