@@ -301,6 +301,27 @@ GAMES = [
         "color": "#94a3b8",
         "external_url": "https://chromedino.com/",
     },
+    {
+        "slug": "asteroid-runner",
+        "title": "Asteroid Runner",
+        "category": "Arcade",
+        "blurb": "Pilot through an endless asteroid belt. Distance is the score.",
+        "color": "#a855f7",
+    },
+    {
+        "slug": "higher-lower",
+        "title": "Higher or Lower",
+        "category": "Casino",
+        "blurb": "Will the next card be higher or lower? Streak to multiply.",
+        "color": "#10b981",
+    },
+    {
+        "slug": "mastermind",
+        "title": "Mastermind",
+        "category": "Puzzle",
+        "blurb": "Crack the 4-color code in 10 guesses. Pegs hint how close you are.",
+        "color": "#ec4899",
+    },
 ]
 
 GAMES_BY_SLUG = {g["slug"]: g for g in GAMES}

@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Asteroid Runner</title>
+<link rel="stylesheet" href="../_shared/game.css">
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Distance: <strong id="dist">0</strong> km</span>
+    <span>Best: <strong id="best">0</strong></span>
+    <span>Shot: <strong id="shot">0</strong></span>
+    <span>Speed: <strong id="speed">1.0x</strong></span>
+    <button class="game-btn primary" id="play">Play</button>
+  </div>
+  <canvas id="cv" width="800" height="460"></canvas>
+  <div class="game-message" id="msg">W/S or up/down to dodge. Space to shoot. Survive as long as you can.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "asteroid-runner";
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+
+let saved = GG.load(SLUG, { best: 0 }) || { best: 0 };
+saved = Object.assign({ best: 0 }, saved);
+
+const distEl  = document.getElementById("dist");
+const bestEl  = document.getElementById("best");
+const shotEl  = document.getElementById("shot");
+const speedEl = document.getElementById("speed");
+const msgEl   = document.getElementById("msg");
+const playBtn = document.getElementById("play");
+bestEl.textContent = saved.best;
+
+const keys = {};
+window.addEventListener("keydown", (e) => {
+  keys[e.key.toLowerCase()] = true;
+  if (["arrowup","arrowdown","arrowleft","arrowright"," ","w","a","s","d"].includes(e.key.toLowerCase())) e.preventDefault();
+});
+window.addEventListener("keyup", (e) => { keys[e.key.toLowerCase()] = false; });
+function held(name) {
+  if (name === "up")    return keys["arrowup"]    || keys["w"];
+  if (name === "down")  return keys["arrowdown"]  || keys["s"];
+  if (name === "left")  return keys["arrowleft"]  || keys["a"];
+  if (name === "right") return keys["arrowright"] || keys["d"];
+  return keys[name];
+}
+
+let ship, rocks, bullets, particles, stars, dist, shotCount, alive, cooldown, scrollSpeed, baseSpeed;
+
+function newGame() {
+  ship = { x: 120, y: H / 2, vx: 0, vy: 0, r: 14, color: "#7c5cff" };
+  rocks = []; bullets = []; particles = [];
+  stars = [];
+  for (let i = 0; i < 80; i++) {
+    stars.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.5 + 0.5, sp: 0.3 + Math.random() });
+  }
+  dist = 0; shotCount = 0; cooldown = 0;
+  baseSpeed = 220; scrollSpeed = baseSpeed;
+  alive = true;
+  distEl.textContent = 0; shotEl.textContent = 0; speedEl.textContent = "1.0x";
+  msgEl.textContent = "W/S or up/down to dodge. Space to shoot.";
+}
+
+function spawnRock() {
+  const size = 18 + Math.random() * 36;
+  rocks.push({
+    x: W + size + 20,
+    y: 30 + Math.random() * (H - 60),
+    vx: -(scrollSpeed * (0.6 + Math.random() * 0.7)),
+    vy: (Math.random() - 0.5) * 60,
+    r: size,
+    spin: (Math.random() - 0.5) * 2,
+    rot: 0,
+    hp: size > 36 ? 2 : 1,
+  });
+}
+
+let lastTs = 0;
+function tick(ts) {
+  const dt = lastTs ? Math.min(0.033, (ts - lastTs) / 1000) : 0.016;
+  lastTs = ts;
+  if (alive) {
+    // controls (ship moves in 2D)
+    const accel = 600;
+    if (held("up"))    ship.vy -= accel * dt;
+    if (held("down"))  ship.vy += accel * dt;
+    if (held("left"))  ship.vx -= accel * dt;
+    if (held("right")) ship.vx += accel * dt;
+    ship.vx *= Math.pow(0.85, dt * 60);
+    ship.vy *= Math.pow(0.85, dt * 60);
+    ship.x += ship.vx * dt;
+    ship.y += ship.vy * dt;
+    // soft return-to-left so player doesn't pin to right edge
+    if (ship.x > 240) ship.x -= (ship.x - 240) * 1.5 * dt;
+    ship.x = Math.max(ship.r, Math.min(W - ship.r, ship.x));
+    ship.y = Math.max(ship.r, Math.min(H - ship.r, ship.y));
+    // shoot
+    cooldown -= dt;
+    if (keys[" "] && cooldown <= 0) {
+      bullets.push({ x: ship.x + 18, y: ship.y, vx: 800, life: 1.2 });
+      cooldown = 0.18;
+      shotCount++;
+      shotEl.textContent = shotCount;
+    }
+    // distance and speed ramp
+    dist += scrollSpeed * dt / 60; // in "km" cosmetic
+    scrollSpeed = baseSpeed + Math.min(380, dist * 12);
+    speedEl.textContent = (scrollSpeed / baseSpeed).toFixed(1) + "x";
+    distEl.textContent = Math.floor(dist);
+    // spawn rocks based on speed
+    if (Math.random() < (0.5 + scrollSpeed / 400) * dt) spawnRock();
+    // stars
+    for (const s of stars) {
+      s.x -= s.sp * scrollSpeed * dt * 0.6;
+      if (s.x < 0) { s.x = W; s.y = Math.random() * H; }
+    }
+    // rocks
+    for (const r of rocks.slice()) {
+      r.x += r.vx * dt;
+      r.y += r.vy * dt;
+      r.rot += r.spin * dt;
+      if (r.x + r.r < -20) rocks.splice(rocks.indexOf(r), 1);
+      // bounce vertically off the walls
+      if (r.y - r.r < 0)  { r.y = r.r;     r.vy = Math.abs(r.vy); }
+      if (r.y + r.r > H)  { r.y = H - r.r; r.vy = -Math.abs(r.vy); }
+      // collision with ship
+      if (Math.hypot(r.x - ship.x, r.y - ship.y) < r.r + ship.r) {
+        return die();
+      }
+    }
+    // bullets
+    for (const b of bullets.slice()) {
+      b.x += b.vx * dt; b.life -= dt;
+      if (b.x > W + 20 || b.life <= 0) bullets.splice(bullets.indexOf(b), 1);
+      else for (const r of rocks.slice()) {
+        if (Math.hypot(r.x - b.x, r.y - b.y) < r.r + 3) {
+          r.hp--;
+          bullets.splice(bullets.indexOf(b), 1);
+          for (let i = 0; i < 6; i++) {
+            particles.push({ x: r.x, y: r.y, vx: (Math.random() - 0.5) * 200, vy: (Math.random() - 0.5) * 200, life: 0.4, color: "#cbd5e1" });
+          }
+          if (r.hp <= 0) {
+            rocks.splice(rocks.indexOf(r), 1);
+            dist += 5; // small bonus distance
+            for (let i = 0; i < 14; i++) {
+              particles.push({ x: r.x, y: r.y, vx: (Math.random() - 0.5) * 300, vy: (Math.random() - 0.5) * 300, life: 0.6, color: "#fcd34d" });
+            }
+          }
+          break;
+        }
+      }
+    }
+    // particles
+    for (const p of particles.slice()) {
+      p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+      if (p.life <= 0) particles.splice(particles.indexOf(p), 1);
+    }
+  }
+  draw();
+  requestAnimationFrame(tick);
+}
+
+function die() {
+  alive = false;
+  if (Math.floor(dist) > (saved.best || 0)) { saved.best = Math.floor(dist); bestEl.textContent = saved.best; }
+  GG.save(SLUG, saved);
+  msgEl.textContent = `Crashed at ${Math.floor(dist)} km.`;
+  if (window.GG && GG.youLose) GG.youLose("You Lose", `Distance ${Math.floor(dist)} km.`);
+}
+
+function draw() {
+  ctx.fillStyle = "#0a0e1f";
+  ctx.fillRect(0, 0, W, H);
+  // stars
+  for (const s of stars) {
+    ctx.fillStyle = `rgba(255,255,255,${0.3 + s.sp * 0.3})`;
+    ctx.fillRect(s.x, s.y, s.r * 2, s.r * 2);
+  }
+  // rocks
+  for (const r of rocks) {
+    ctx.save();
+    ctx.translate(r.x, r.y);
+    ctx.rotate(r.rot);
+    ctx.fillStyle = "#475569";
+    ctx.beginPath();
+    const sides = 8;
+    for (let i = 0; i < sides; i++) {
+      const a = (i / sides) * Math.PI * 2;
+      const rr = r.r * (0.85 + Math.sin(i * 7.3) * 0.15);
+      const x = Math.cos(a) * rr, y = Math.sin(a) * rr;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.4)"; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.18)";
+    ctx.beginPath(); ctx.arc(-r.r * 0.3, -r.r * 0.3, r.r * 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+  // particles
+  for (const p of particles) {
+    ctx.fillStyle = p.color;
+    ctx.globalAlpha = Math.max(0, p.life * 2);
+    ctx.fillRect(p.x - 2, p.y - 2, 3, 3);
+    ctx.globalAlpha = 1;
+  }
+  // bullets
+  ctx.fillStyle = "#fcd34d";
+  for (const b of bullets) ctx.fillRect(b.x - 6, b.y - 2, 12, 4);
+  // ship
+  ctx.save();
+  ctx.translate(ship.x, ship.y);
+  ctx.fillStyle = ship.color;
+  ctx.beginPath();
+  ctx.moveTo(18, 0);
+  ctx.lineTo(-12, -12);
+  ctx.lineTo(-6, 0);
+  ctx.lineTo(-12, 12);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 1; ctx.stroke();
+  // thrust
+  ctx.fillStyle = "#fcd34d";
+  ctx.beginPath();
+  ctx.moveTo(-6, -3); ctx.lineTo(-14 - Math.random() * 6, 0); ctx.lineTo(-6, 3); ctx.fill();
+  ctx.restore();
+}
+
+playBtn.addEventListener("click", () => { newGame(); playBtn.textContent = "Restart"; });
+newGame();
+alive = false;
+msgEl.textContent = "Press Play. W/S or arrows to move, space to shoot.";
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>

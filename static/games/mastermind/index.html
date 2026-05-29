@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mastermind</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .mm-stage { display: flex; gap: 24px; align-items: flex-start; }
+  .mm-board {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 6px;
+    min-height: 480px;
+  }
+  .mm-row {
+    display: flex; gap: 6px; align-items: center;
+    background: var(--panel-2);
+    padding: 6px 8px; border-radius: 8px;
+  }
+  .mm-row.current { border: 2px solid var(--accent); }
+  .mm-slot {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 2px solid var(--border);
+    background: var(--bg);
+    cursor: pointer;
+  }
+  .mm-feedback {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3px;
+    margin-left: 10px;
+  }
+  .mm-peg {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .mm-peg.hit { background: white; }
+  .mm-peg.near { background: var(--text-dim); }
+  .mm-palette {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex; flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    width: 100px;
+  }
+  .mm-palette h3 { margin: 0; font-size: 13px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
+  .mm-color {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid rgba(0,0,0,0.3);
+    transition: transform 0.08s;
+  }
+  .mm-color:hover { transform: scale(1.08); }
+  .mm-color.selected { outline: 3px solid #fcd34d; outline-offset: 2px; }
+  .mm-secret { display: flex; gap: 6px; margin-bottom: 12px; }
+  .mm-secret-slot {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: var(--panel-2);
+    border: 2px solid var(--border);
+    display: grid; place-items: center;
+    color: var(--text-dim); font-weight: 800;
+  }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Wins: <strong id="wins">0</strong></span>
+    <span>Losses: <strong id="losses">0</strong></span>
+    <span>Guesses left: <strong id="left">10</strong></span>
+    <button class="game-btn primary" id="newGame">New code</button>
+  </div>
+  <div class="mm-secret" id="secret"></div>
+  <div class="mm-stage">
+    <div class="mm-board" id="board"></div>
+    <div class="mm-palette">
+      <h3>Colors</h3>
+      <div id="palette"></div>
+      <button class="game-btn primary" id="submit" style="margin-top: 6px;">Submit</button>
+      <button class="game-btn" id="clear" style="margin-top: 4px;">Clear row</button>
+    </div>
+  </div>
+  <div class="game-message" id="msg">Click a color, then a slot. Fill all 4 and Submit.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "mastermind";
+const COLORS = ["#ef4444","#f97316","#facc15","#22c55e","#06b6d4","#7c5cff"];
+const CODE_LEN = 4;
+const MAX_GUESSES = 10;
+
+let saved = GG.load(SLUG, { wins: 0, losses: 0 }) || {};
+saved = Object.assign({ wins: 0, losses: 0 }, saved);
+
+const winsEl = document.getElementById("wins");
+const lossesEl = document.getElementById("losses");
+const leftEl = document.getElementById("left");
+const secretEl = document.getElementById("secret");
+const boardEl = document.getElementById("board");
+const paletteEl = document.getElementById("palette");
+const msgEl = document.getElementById("msg");
+
+let secret, guesses, current, selectedColor, over;
+
+function newGame() {
+  secret = [];
+  for (let i = 0; i < CODE_LEN; i++) secret.push(Math.floor(Math.random() * COLORS.length));
+  guesses = [];
+  current = new Array(CODE_LEN).fill(null);
+  selectedColor = 0;
+  over = false;
+  msgEl.textContent = "Click a color, then a slot. Fill all 4 and Submit.";
+  renderSecret(true);
+  renderPalette();
+  renderBoard();
+  updateHud();
+}
+
+function renderSecret(hidden) {
+  secretEl.innerHTML = "";
+  for (let i = 0; i < CODE_LEN; i++) {
+    const el = document.createElement("div");
+    el.className = "mm-secret-slot";
+    if (hidden) {
+      el.textContent = "?";
+    } else {
+      el.style.background = COLORS[secret[i]];
+      el.style.border = "2px solid rgba(0,0,0,0.4)";
+    }
+    secretEl.appendChild(el);
+  }
+}
+
+function renderPalette() {
+  paletteEl.innerHTML = "";
+  for (let i = 0; i < COLORS.length; i++) {
+    const el = document.createElement("div");
+    el.className = "mm-color" + (i === selectedColor ? " selected" : "");
+    el.style.background = COLORS[i];
+    el.addEventListener("click", () => { selectedColor = i; renderPalette(); });
+    paletteEl.appendChild(el);
+  }
+}
+
+function renderBoard() {
+  boardEl.innerHTML = "";
+  // historical guesses bottom-up (we use column-reverse, so newest at top)
+  for (let i = 0; i < guesses.length; i++) {
+    boardEl.appendChild(buildRow(guesses[i].colors, guesses[i].feedback));
+  }
+  if (!over && guesses.length < MAX_GUESSES) {
+    boardEl.appendChild(buildRow(current, null, true));
+  }
+}
+
+function buildRow(colors, feedback, isCurrent) {
+  const row = document.createElement("div");
+  row.className = "mm-row" + (isCurrent ? " current" : "");
+  for (let i = 0; i < CODE_LEN; i++) {
+    const slot = document.createElement("div");
+    slot.className = "mm-slot";
+    if (colors[i] != null) {
+      slot.style.background = COLORS[colors[i]];
+      slot.style.borderColor = "rgba(0,0,0,0.4)";
+    }
+    if (isCurrent) {
+      const idx = i;
+      slot.addEventListener("click", () => {
+        // current is the module-scope array, always reference it directly
+        current[idx] = selectedColor;
+        renderBoard();
+      });
+    }
+    row.appendChild(slot);
+  }
+  if (feedback) {
+    const fb = document.createElement("div");
+    fb.className = "mm-feedback";
+    for (let i = 0; i < CODE_LEN; i++) {
+      const peg = document.createElement("div");
+      peg.className = "mm-peg";
+      if (i < feedback.hits) peg.classList.add("hit");
+      else if (i < feedback.hits + feedback.near) peg.classList.add("near");
+      fb.appendChild(peg);
+    }
+    row.appendChild(fb);
+  }
+  return row;
+}
+
+function score(guess) {
+  let hits = 0, near = 0;
+  const sLeft = secret.slice(), gLeft = guess.slice();
+  for (let i = 0; i < CODE_LEN; i++) {
+    if (gLeft[i] === sLeft[i]) {
+      hits++;
+      sLeft[i] = -1; gLeft[i] = -2;
+    }
+  }
+  for (let i = 0; i < CODE_LEN; i++) {
+    if (gLeft[i] === -2) continue;
+    const j = sLeft.indexOf(gLeft[i]);
+    if (j >= 0) { near++; sLeft[j] = -1; }
+  }
+  return { hits, near };
+}
+
+function submitGuess() {
+  if (over) return;
+  if (current.some((c) => c == null)) { msgEl.textContent = "Fill all 4 slots."; return; }
+  const fb = score(current);
+  guesses.push({ colors: current.slice(), feedback: fb });
+  // Reuse the same array reference (so click handlers stay bound) by
+  // resetting the contents instead of replacing the array.
+  for (let i = 0; i < CODE_LEN; i++) current[i] = null;
+  updateHud();
+  if (fb.hits === CODE_LEN) {
+    over = true;
+    saved.wins++;
+    GG.save(SLUG, saved);
+    msgEl.textContent = `Solved in ${guesses.length} guess${guesses.length === 1 ? "" : "es"}!`;
+    renderSecret(false);
+    renderBoard();
+    if (window.GG && GG.youWin) GG.youWin("You Win!", `Cracked the code in ${guesses.length} guesses.`);
+    return;
+  }
+  if (guesses.length >= MAX_GUESSES) {
+    over = true;
+    saved.losses++;
+    GG.save(SLUG, saved);
+    msgEl.textContent = "Out of guesses.";
+    renderSecret(false);
+    renderBoard();
+    if (window.GG && GG.youLose) GG.youLose("You Lose", "The code is revealed above.");
+    return;
+  }
+  renderBoard();
+}
+
+function updateHud() {
+  winsEl.textContent = saved.wins;
+  lossesEl.textContent = saved.losses;
+  leftEl.textContent = MAX_GUESSES - guesses.length;
+}
+
+document.getElementById("submit").addEventListener("click", submitGuess);
+document.getElementById("clear").addEventListener("click", () => {
+  for (let i = 0; i < CODE_LEN; i++) current[i] = null;
+  renderBoard();
+});
+document.getElementById("newGame").addEventListener("click", newGame);
+
+newGame();
+</script>
+</body>
+</html>

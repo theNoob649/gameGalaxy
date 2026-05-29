@@ -771,6 +771,58 @@ async def play_word_search(page):
     await asyncio.sleep(0.15)
 
 
+async def play_asteroid_runner(page):
+    await page.click("#play")
+    await asyncio.sleep(0.1)
+    await page.evaluate("""() => {
+        rocks.length = 0;
+        rocks.push({ x: 500, y: 120, vx: -200, vy: 10, r: 38, spin: 0.5, rot: 0.4, hp: 2 });
+        rocks.push({ x: 620, y: 260, vx: -200, vy: -20, r: 28, spin: -0.3, rot: 1.1, hp: 1 });
+        rocks.push({ x: 320, y: 360, vx: -200, vy: 30, r: 22, spin: 0.6, rot: 2.0, hp: 1 });
+        rocks.push({ x: 720, y: 80,  vx: -200, vy: 40, r: 32, spin: 0.1, rot: 0.0, hp: 1 });
+        bullets.length = 0;
+        bullets.push({ x: 220, y: 230, vx: 800, life: 1 });
+        bullets.push({ x: 320, y: 230, vx: 800, life: 1 });
+        ship.x = 140; ship.y = 230;
+        dist = 312; shotCount = 18; scrollSpeed = 360;
+        distEl.textContent = Math.floor(dist);
+        shotEl.textContent = shotCount;
+        speedEl.textContent = "1.6x";
+        alive = false;
+        draw();
+    }""")
+    await asyncio.sleep(0.1)
+
+
+async def play_higher_lower(page):
+    # Reveal left as a face card, leave the right card face-down
+    await page.evaluate("""() => {
+        current = { rank: '10', suit: '♥' };
+        renderCard(leftEl, current, false);
+        streak = 4;
+        streakEl.textContent = streak;
+        statusEl.textContent = 'Higher or lower?';
+    }""")
+    await asyncio.sleep(0.1)
+
+
+async def play_mastermind(page):
+    await page.evaluate("""() => {
+        // populate a few guesses with feedback for a mid-game look
+        guesses = [
+            { colors: [0, 1, 2, 3], feedback: { hits: 1, near: 1 } },
+            { colors: [2, 0, 4, 1], feedback: { hits: 2, near: 0 } },
+            { colors: [2, 4, 1, 5], feedback: { hits: 1, near: 2 } },
+        ];
+        current[0] = 4; current[1] = 0; current[2] = 1; current[3] = null;
+        selectedColor = 5;
+        renderPalette();
+        renderBoard();
+        updateHud();
+    }""")
+    await asyncio.sleep(0.1)
+
+
 async def play_roulette(page):
     # Place a few chips on different bet types so the felt looks alive.
     for key in ["red", "doz:2", "n:17", "n:23"]:
@@ -844,6 +896,9 @@ PLAYBOOKS = {
     "word-search":         { "selector": ".ws-stage",      "action": play_word_search },
     "roulette":            { "selector": ".rt-table",      "action": play_roulette },
     "slot-machine":        { "selector": ".sm-cabinet",    "action": play_slot_machine },
+    "asteroid-runner":     { "selector": "#cv",            "action": play_asteroid_runner },
+    "higher-lower":        { "selector": ".hl-table",      "action": play_higher_lower },
+    "mastermind":          { "selector": ".mm-stage",      "action": play_mastermind },
     # chrome-dino is an external embed, no playbook
 }
 

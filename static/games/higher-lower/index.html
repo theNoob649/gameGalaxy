@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Higher or Lower</title>
+<link rel="stylesheet" href="../_shared/game.css">
+<style>
+  .hl-table {
+    background: linear-gradient(180deg, #14532d, #052e16);
+    border: 2px solid #064e3b;
+    border-radius: 16px;
+    padding: 28px;
+    display: flex; gap: 32px; align-items: center; justify-content: center;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    min-width: 560px;
+  }
+  .hl-card {
+    width: 140px; height: 200px;
+    background: white;
+    color: #1a1a1a;
+    border-radius: 14px;
+    display: grid; place-items: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4);
+    font-weight: 800;
+    font-family: ui-monospace, monospace;
+    position: relative;
+  }
+  .hl-card.red { color: #b91c1c; }
+  .hl-card.back {
+    background: repeating-linear-gradient(45deg, #7c5cff, #7c5cff 8px, #ff6b9d 8px, #ff6b9d 16px);
+    color: transparent;
+  }
+  .hl-card .top, .hl-card .bot { position: absolute; font-size: 16px; }
+  .hl-card .top { top: 8px; left: 12px; }
+  .hl-card .bot { bottom: 8px; right: 12px; transform: rotate(180deg); }
+  .hl-card .mid { font-size: 56px; line-height: 1; }
+  .hl-vs { font-size: 36px; color: rgba(255,255,255,0.5); font-weight: 800; }
+  .hl-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 16px; }
+  .hl-buttons button { font-size: 18px; padding: 14px 32px; }
+  .hl-bet { display: flex; gap: 8px; align-items: center; }
+  .hl-bet button {
+    background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 12px; border-radius: 999px;
+    font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .hl-bet button:hover { border-color: var(--accent); }
+  .hl-status { color: white; font-weight: 600; min-height: 1.4em; text-align: center; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="game-shell">
+  <div class="game-hud">
+    <span>Chips: <strong id="chips">1000</strong></span>
+    <span>Streak: <strong id="streak">0</strong></span>
+    <span>Best streak: <strong id="bestStreak">0</strong></span>
+    <span>Best: <strong id="best">1000</strong></span>
+    <div class="hl-bet">
+      <span style="font-size: 12px; color: var(--text-dim);">Stake:</span>
+      <button data-stake="-50">-50</button>
+      <span>$<strong id="stake">50</strong></span>
+      <button data-stake="50">+50</button>
+      <button data-stake="500">+500</button>
+    </div>
+  </div>
+  <div class="hl-table">
+    <div class="hl-card" id="left">
+      <div class="top"></div>
+      <div class="mid">?</div>
+      <div class="bot"></div>
+    </div>
+    <div class="hl-vs">VS</div>
+    <div class="hl-card back" id="right">
+      <div class="mid">?</div>
+    </div>
+  </div>
+  <div class="hl-status" id="status">Pick higher or lower than the left card.</div>
+  <div class="hl-buttons">
+    <button class="game-btn" id="lower">Lower</button>
+    <button class="game-btn primary" id="higher">Higher</button>
+    <button class="game-btn" id="cashout">Cash out</button>
+  </div>
+  <div class="game-message" id="msg">Aces are low. Ties pay 1:1. Streak multiplies your payout.</div>
+</div>
+<script src="../_shared/gg.js"></script>
+<script>
+const SLUG = "higher-lower";
+
+let saved = GG.load(SLUG, { chips: 1000, best: 1000, bestStreak: 0, plays: 0 }) || {};
+saved = Object.assign({ chips: 1000, best: 1000, bestStreak: 0, plays: 0 }, saved);
+if (saved.chips <= 0) saved.chips = 1000;
+
+const SUITS = ["♠", "♥", "♦", "♣"];
+const RANKS = ["A", "2","3","4","5","6","7","8","9","10","J","Q","K"];
+
+const chipsEl = document.getElementById("chips");
+const streakEl = document.getElementById("streak");
+const bestStreakEl = document.getElementById("bestStreak");
+const bestEl = document.getElementById("best");
+const stakeEl = document.getElementById("stake");
+const leftEl = document.getElementById("left");
+const rightEl = document.getElementById("right");
+const statusEl = document.getElementById("status");
+const msgEl = document.getElementById("msg");
+const higherBtn = document.getElementById("higher");
+const lowerBtn = document.getElementById("lower");
+const cashoutBtn = document.getElementById("cashout");
+
+let stake = 50;
+let current = null;
+let streak = 0;
+let pendingPayout = 0;
+let inRound = false;
+
+chipsEl.textContent = saved.chips;
+bestEl.textContent = saved.best;
+bestStreakEl.textContent = saved.bestStreak;
+
+function randomCard() {
+  return { rank: RANKS[Math.floor(Math.random() * RANKS.length)], suit: SUITS[Math.floor(Math.random() * SUITS.length)] };
+}
+
+function rankValue(c) { return RANKS.indexOf(c.rank); }
+
+function renderCard(el, c, hidden) {
+  el.classList.toggle("back", !!hidden);
+  el.classList.toggle("red", !hidden && (c.suit === "♥" || c.suit === "♦"));
+  el.querySelector(".mid").textContent = hidden ? "?" : c.suit;
+  const top = el.querySelector(".top");
+  const bot = el.querySelector(".bot");
+  if (top) top.textContent = hidden ? "" : (c.rank + c.suit);
+  if (bot) bot.textContent = hidden ? "" : (c.rank + c.suit);
+}
+
+function adjustStake(delta) {
+  if (inRound) return;
+  stake = Math.max(50, Math.min(saved.chips, stake + delta));
+  stakeEl.textContent = stake;
+}
+
+function startRound() {
+  if (saved.chips < stake) { msgEl.textContent = "Not enough chips."; return; }
+  saved.chips -= stake;
+  pendingPayout = stake;
+  streak = 0;
+  streakEl.textContent = 0;
+  chipsEl.textContent = saved.chips;
+  current = randomCard();
+  renderCard(leftEl, current, false);
+  renderCard(rightEl, randomCard(), true);
+  inRound = true;
+  statusEl.textContent = "Higher or lower?";
+}
+
+function guess(direction) {
+  if (!inRound) { startRound(); return; }
+  const next = randomCard();
+  renderCard(rightEl, next, false);
+  const cv = rankValue(current), nv = rankValue(next);
+  const isHigher = nv > cv;
+  const isLower  = nv < cv;
+  const tie = nv === cv;
+  let win = false;
+  if (tie) {
+    win = true;
+    statusEl.textContent = `Tie. Payout doubles.`;
+  } else if (direction === "higher" && isHigher) {
+    win = true;
+    statusEl.textContent = `Higher. Stake grows.`;
+  } else if (direction === "lower" && isLower) {
+    win = true;
+    statusEl.textContent = `Lower. Stake grows.`;
+  } else {
+    statusEl.textContent = `${next.rank}${next.suit}. Bust.`;
+  }
+  if (win) {
+    streak++;
+    streakEl.textContent = streak;
+    if (streak > saved.bestStreak) {
+      saved.bestStreak = streak;
+      bestStreakEl.textContent = streak;
+    }
+    pendingPayout = Math.floor(pendingPayout * 1.7);
+    current = next;
+    setTimeout(() => {
+      renderCard(rightEl, randomCard(), true);
+      renderCard(leftEl, current, false);
+    }, 700);
+    saved.plays = (saved.plays || 0) + 1;
+    GG.save(SLUG, saved);
+  } else {
+    inRound = false;
+    pendingPayout = 0;
+    setTimeout(() => {
+      renderCard(rightEl, randomCard(), true);
+    }, 1200);
+    saved.plays = (saved.plays || 0) + 1;
+    GG.save(SLUG, saved);
+    if (saved.chips <= 0) {
+      if (window.GG && GG.youLose) GG.youLose("You Lose", "Bankroll busted. Reset to 1000 chips.");
+      saved.chips = 1000;
+      chipsEl.textContent = saved.chips;
+      GG.save(SLUG, saved);
+    }
+  }
+}
+
+function cashout() {
+  if (!inRound || pendingPayout === 0) {
+    msgEl.textContent = "Play a round first.";
+    return;
+  }
+  saved.chips += pendingPayout;
+  if (saved.chips > saved.best) saved.best = saved.chips;
+  bestEl.textContent = saved.best;
+  chipsEl.textContent = saved.chips;
+  msgEl.textContent = `Cashed out ${pendingPayout} chips on a ${streak}-streak.`;
+  statusEl.textContent = `+${pendingPayout}. Place a new stake.`;
+  pendingPayout = 0;
+  inRound = false;
+  GG.save(SLUG, saved);
+  setTimeout(() => {
+    renderCard(rightEl, randomCard(), true);
+  }, 600);
+  if (pendingPayout >= 5000 && window.GG && GG.youWin) {
+    GG.youWin("You Win!", `Cashed out ${pendingPayout} on a ${streak}-streak.`);
+  }
+}
+
+document.querySelectorAll("[data-stake]").forEach((b) =>
+  b.addEventListener("click", () => adjustStake(parseInt(b.dataset.stake, 10)))
+);
+higherBtn.addEventListener("click", () => guess("higher"));
+lowerBtn.addEventListener("click",  () => guess("lower"));
+cashoutBtn.addEventListener("click", cashout);
+
+// initial card hidden
+renderCard(leftEl, randomCard(), true);
+renderCard(rightEl, randomCard(), true);
+</script>
+</body>
+</html>
