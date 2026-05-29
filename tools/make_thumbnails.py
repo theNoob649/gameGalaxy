@@ -779,7 +779,6 @@ PLAYBOOKS = {
     "tic-tac-toe":         { "selector": "#board",         "action": play_tic_tac_toe },
     "minesweeper":         { "selector": "#board",         "action": play_minesweeper },
     "flap":                { "selector": "#cv",            "action": play_flap },
-    "runner":              { "selector": "#cv",            "action": play_runner },
     "word-guess":          { "selector": "#grid",          "action": play_word_guess },
     "coal-clicker":        { "selector": ".cc-layout",     "action": play_coal_clicker },
     "lockpick":            { "selector": "#cv",            "action": play_lockpick },

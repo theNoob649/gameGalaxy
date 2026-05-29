@@ -56,13 +56,6 @@ GAMES = [
         "color": "#fcd34d",
     },
     {
-        "slug": "runner",
-        "title": "Endless Runner",
-        "category": "Reflex",
-        "blurb": "Run forever. Jump the obstacles.",
-        "color": "#c084fc",
-    },
-    {
         "slug": "word-guess",
         "title": "Wordle",
         "category": "Word",
