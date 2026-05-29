@@ -551,6 +551,226 @@ async def play_battleship(page):
         await asyncio.sleep(0.25)
 
 
+async def play_tetris(page):
+    await page.click("#play")
+    await asyncio.sleep(0.1)
+    await page.evaluate("""() => {
+        // build a stack of colored cells that looks mid-game
+        const palette = ["#22d3ee","#facc15","#a78bfa","#34d399","#f87171","#fb923c","#60a5fa"];
+        function fill(r, c) { board[r][c] = palette[(r + c) % palette.length]; }
+        const layout = [
+          [0,0,0,0,1,1,0,0,0,0],
+          [0,0,0,1,1,1,1,0,0,0],
+          [0,0,1,1,0,1,1,1,0,0],
+          [0,1,1,0,0,0,1,1,1,1],
+          [1,1,1,1,0,1,1,1,1,1],
+          [1,1,1,1,1,1,1,1,1,0],
+          [1,1,1,1,1,1,1,1,1,1],
+        ];
+        for (let i = 0; i < layout.length; i++) for (let c = 0; c < 10; c++) {
+          if (layout[i][c]) fill(ROWS - layout.length + i, c);
+        }
+        // a falling piece up top
+        current = newPiece();
+        current.kind = "T";
+        current.color = "#a78bfa";
+        current.blocks = [[1,0],[0,1],[1,1],[2,1]];
+        current.x = 4; current.y = 2;
+        score = 1240; lines = 12; level = 3;
+        scoreEl.textContent = score; linesEl.textContent = lines; levelEl.textContent = level;
+        alive = false;
+        draw();
+    }""")
+    await asyncio.sleep(0.15)
+
+
+async def play_pacman(page):
+    await page.click("#play")
+    await asyncio.sleep(0.1)
+    await page.evaluate("""() => {
+        // remove a chunk of dots in the lower half so the maze looks mid-eaten
+        dots = dots.filter((d) => d.r < 10 || ((d.r + d.c) % 2 === 0));
+        pac.x = 12 * TILE + 6;
+        pac.y = 17 * TILE + 8;
+        pac.dir = { x: 1, y: 0 };
+        // position ghosts near pac
+        if (ghosts[0]) { ghosts[0].x = 14 * TILE; ghosts[0].y = 17 * TILE; }
+        if (ghosts[1]) { ghosts[1].x = 13 * TILE; ghosts[1].y = 14 * TILE; ghosts[1].frightened = true; }
+        if (ghosts[2]) { ghosts[2].x = 17 * TILE; ghosts[2].y = 19 * TILE; }
+        if (ghosts[3]) { ghosts[3].x = 10 * TILE; ghosts[3].y = 19 * TILE; }
+        score = 1240;
+        scoreEl.textContent = score;
+        alive = false;
+        draw();
+    }""")
+    await asyncio.sleep(0.15)
+
+
+async def play_asteroids(page):
+    await page.click("#play")
+    await asyncio.sleep(0.1)
+    await page.evaluate("""() => {
+        ship.x = W / 2; ship.y = H / 2 + 60; ship.angle = -Math.PI / 2;
+        rocks.length = 0;
+        rocks.push(makeRock(120, 90, 3));
+        rocks.push(makeRock(480, 110, 2));
+        rocks.push(makeRock(340, 180, 3));
+        rocks.push(makeRock(80, 380, 2));
+        rocks.push(makeRock(520, 360, 1));
+        bullets.length = 0;
+        bullets.push({ x: ship.x, y: ship.y - 30, vx: 0, vy: -420, life: 1 });
+        bullets.push({ x: ship.x - 30, y: ship.y - 60, vx: 0, vy: -420, life: 1 });
+        score = 480; wave = 3; invuln = 0;
+        scoreEl.textContent = score; waveEl.textContent = wave;
+        alive = false;
+        draw();
+    }""")
+    await asyncio.sleep(0.15)
+
+
+async def play_space_invaders(page):
+    await page.click("#play")
+    await asyncio.sleep(0.1)
+    await page.evaluate("""() => {
+        // remove some aliens to show a partially-cleared formation
+        aliens = aliens.filter((a, i) => i % 3 !== 0 || a.y > 70);
+        ship.x = W / 2;
+        bullets.length = 0;
+        bullets.push({ x: ship.x, y: ship.y - 60, vy: -480 });
+        bullets.push({ x: ship.x - 80, y: ship.y - 120, vy: -480 });
+        alienBullets.length = 0;
+        alienBullets.push({ x: 180, y: 250, vy: 220 });
+        score = 320; wave = 2;
+        scoreEl.textContent = score; waveEl.textContent = wave;
+        alive = false;
+        draw();
+    }""")
+    await asyncio.sleep(0.15)
+
+
+async def play_breakout(page):
+    await page.click("#play")
+    await asyncio.sleep(0.05)
+    await page.evaluate("""() => {
+        // knock out some bricks from the bottom rows
+        bricks = bricks.filter((b, i) => !((b.y > 110 && (i % 3 === 0)) || (b.y > 130 && i % 2 === 0)));
+        paddleX = (W - PADDLE_W) / 2;
+        ball = { x: paddleX + PADDLE_W / 2 - 40, y: H - 160, vx: -160, vy: -260, r: 7 };
+        launched = true;
+        score = 320; level = 1;
+        scoreEl.textContent = score;
+        alive = false;
+        draw();
+    }""")
+    await asyncio.sleep(0.15)
+
+
+async def play_frogger(page):
+    await page.click("#play")
+    await asyncio.sleep(0.1)
+    await page.evaluate("""() => {
+        frog.row = 8;  // sitting on a log lane
+        frog.col = 5;
+        score = 270;
+        scoreEl.textContent = score;
+        alive = false;
+        draw();
+    }""")
+    await asyncio.sleep(0.1)
+
+
+async def play_blackjack(page):
+    await page.click("#deal");
+    await asyncio.sleep(0.4);
+    # Optionally hit once for visual interest
+    try:
+        await page.click("#hit")
+    except Exception:
+        pass
+    await asyncio.sleep(0.4)
+
+
+async def play_plinko(page):
+    await page.evaluate("""() => {
+        // drop a few chips at varying positions to populate the field
+        for (let i = 0; i < 6; i++) {
+          balls.push({
+            x: 100 + Math.random() * 300,
+            y: 30 + i * 60,
+            vx: (Math.random() - 0.5) * 40,
+            vy: 0,
+            color: `hsl(${i * 60}, 80%, 65%)`,
+          });
+        }
+    }""")
+    await asyncio.sleep(0.7)
+
+
+async def play_stick_hero(page):
+    await page.click("#play")
+    await asyncio.sleep(0.1)
+    await page.evaluate("""() => {
+        // mid-fall stick reaching to next platform
+        current = { x: 60, w: 90 };
+        next = { x: 240, w: 70 };
+        stick = { len: 200, angle: Math.PI / 3, falling: true };
+        hero.x = current.x + current.w - 14;
+        hero.y = GROUND_Y;
+        phase = "falling";
+        score = 8;
+        scoreEl.textContent = score;
+        draw();
+    }""")
+    await asyncio.sleep(0.05)
+
+
+async def play_hangman(page):
+    await page.click('button[data-dif="medium"]')
+    await asyncio.sleep(0.05)
+    await page.evaluate("""() => {
+        // pretend the user is mid-game with some letters tried
+        answer = "rocket";
+        revealed = new Set(["r","o","e"]);
+        tried = new Set(["r","o","e","a","s","z"]);
+        misses = 3;
+        render();
+    }""")
+    await asyncio.sleep(0.1)
+
+
+async def play_word_search(page):
+    await page.click("#newGame")
+    await asyncio.sleep(0.3)
+    # mark a couple words found by simulating drag-find via state injection
+    await page.evaluate("""() => {
+        // mark the first two placed words as found and color the grid cells
+        const founds = words.slice(0, 2);
+        for (const w of founds) {
+          foundWords.add(w);
+          // find the word in the grid (any direction) and color cells
+          outer: for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+            for (const [dr, dc] of DIRS) {
+              let ok = true;
+              const cells = [];
+              for (let i = 0; i < w.length; i++) {
+                const nr = r + dr * i, nc = c + dc * i;
+                if (nr < 0 || nr >= SIZE || nc < 0 || nc >= SIZE) { ok = false; break; }
+                if (grid[nr][nc] !== w[i]) { ok = false; break; }
+                cells.push([nr, nc]);
+              }
+              if (ok) {
+                for (const [nr, nc] of cells) cellEl(nr, nc).classList.add("found");
+                break outer;
+              }
+            }
+          }
+        }
+        foundEl.textContent = foundWords.size;
+        renderWords();
+    }""")
+    await asyncio.sleep(0.15)
+
+
 # Map slug -> (selector_to_screenshot, action_fn)
 PLAYBOOKS = {
     "snake":               { "selector": "#cv",            "action": play_snake },
@@ -581,6 +801,19 @@ PLAYBOOKS = {
     "tank-battle":         { "selector": "#cv",            "action": play_tank_battle },
     "checkers":            { "selector": "#board",         "action": play_checkers },
     "battleship":          { "selector": ".bs-wrap",       "action": play_battleship },
+    # newer additions
+    "tetris":              { "selector": "#cv",            "action": play_tetris },
+    "pacman":              { "selector": "#cv",            "action": play_pacman },
+    "asteroids":           { "selector": "#cv",            "action": play_asteroids },
+    "space-invaders":      { "selector": "#cv",            "action": play_space_invaders },
+    "breakout":            { "selector": "#cv",            "action": play_breakout },
+    "frogger":             { "selector": "#cv",            "action": play_frogger },
+    "blackjack":           { "selector": ".bj-table",      "action": play_blackjack },
+    "plinko":              { "selector": "#cv",            "action": play_plinko },
+    "stick-hero":          { "selector": "#cv",            "action": play_stick_hero },
+    "hangman":             { "selector": ".hm-stage",      "action": play_hangman },
+    "word-search":         { "selector": ".ws-stage",      "action": play_word_search },
+    # chrome-dino is an external embed, no playbook
 }
 
 
