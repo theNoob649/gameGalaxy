@@ -353,7 +353,8 @@ a:hover { color: var(--accent-2); }
   z-index: 1;
 }
 
-/* Under-construction cards: not clickable, grayed thumb, yellow caution UI. */
+/* Under-construction cards: not clickable, grayed out, yellow caution UI
+   spanning the entire card (thumbnail + body). */
 .game-card.under-construction {
   cursor: not-allowed;
   text-decoration: none;
@@ -364,13 +365,14 @@ a:hover { color: var(--accent-2); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  position: relative;
 }
 .game-card.under-construction:hover {
   transform: none;
   border-color: var(--border);
 }
-.game-card.under-construction .game-card-thumb,
-.game-card.under-construction .game-card-letter {
+.game-card.under-construction .game-card-art,
+.game-card.under-construction .game-card-body {
   filter: grayscale(0.85) brightness(0.55);
 }
 .game-card-construction {
