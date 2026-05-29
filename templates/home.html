@@ -39,26 +39,58 @@
 
 <section class="catalog" id="catalog">
   {% for game in games %}
-    <a class="game-card"
-       href="{{ url_for('play', slug=game.slug) }}"
-       data-category="{{ game.category }}"
-       data-title="{{ game.title }}"
-       data-chronological-index="{{ game.chronological_index }}"
-       data-recommended-rank="{{ game.recommended_rank }}"
-       style="--accent: {{ game.color }}">
-      <div class="game-card-art" aria-hidden="true">
-        {% if game.thumb %}
-          <img class="game-card-thumb" src="{{ game.thumb }}" alt="" loading="lazy">
-        {% else %}
-          <span class="game-card-letter">{{ game.title[0] }}</span>
-        {% endif %}
+    {% if game.under_construction %}
+      <div class="game-card under-construction"
+           data-category="{{ game.category }}"
+           data-title="{{ game.title }}"
+           data-chronological-index="{{ game.chronological_index }}"
+           data-recommended-rank="{{ game.recommended_rank }}"
+           aria-disabled="true"
+           style="--accent: {{ game.color }}">
+        <div class="game-card-art" aria-hidden="true">
+          {% if game.thumb %}
+            <img class="game-card-thumb" src="{{ game.thumb }}" alt="" loading="lazy">
+          {% else %}
+            <span class="game-card-letter">{{ game.title[0] }}</span>
+          {% endif %}
+          <div class="game-card-construction" aria-hidden="true">
+            <div class="construction-tape construction-tape-top"></div>
+            <div class="construction-sign">
+              <span class="construction-icon">🚧</span>
+              <span class="construction-text">We're fixing this game</span>
+              <span class="construction-icon">🚧</span>
+            </div>
+            <div class="construction-tape construction-tape-bottom"></div>
+          </div>
+        </div>
+        <div class="game-card-body">
+          <span class="game-card-cat">{{ game.category }}</span>
+          <h2 class="game-card-title">{{ game.title }}</h2>
+          <p class="game-card-blurb">{{ game.blurb }}</p>
+        </div>
       </div>
-      <div class="game-card-body">
-        <span class="game-card-cat">{{ game.category }}</span>
-        <h2 class="game-card-title">{{ game.title }}</h2>
-        <p class="game-card-blurb">{{ game.blurb }}</p>
-      </div>
-    </a>
+    {% else %}
+      <a class="game-card"
+         href="{{ url_for('play', slug=game.slug) }}"
+         data-category="{{ game.category }}"
+         data-title="{{ game.title }}"
+         data-chronological-index="{{ game.chronological_index }}"
+         data-recommended-rank="{{ game.recommended_rank }}"
+         style="--accent: {{ game.color }}">
+        <div class="game-card-art" aria-hidden="true">
+          {% if game.thumb %}
+            <img class="game-card-thumb" src="{{ game.thumb }}" alt="" loading="lazy">
+          {% else %}
+            <span class="game-card-letter">{{ game.title[0] }}</span>
+          {% endif %}
+        </div>
+        <div class="game-card-body">
+          <span class="game-card-cat">{{ game.category }}</span>
+          <h2 class="game-card-title">{{ game.title }}</h2>
+          <p class="game-card-blurb">{{ game.blurb }}</p>
+        </div>
+      </a>
+    {% endif %}
   {% endfor %}
 </section>
 

@@ -213,8 +213,9 @@ GAMES = [
         "slug": "pacman",
         "title": "Pac-Man",
         "category": "Arcade",
-        "blurb": "Eat all the dots. Don't get caught by ghosts.",
+        "blurb": "Currently being fixed. The ghosts are misbehaving.",
         "color": "#facc15",
+        "under_construction": True,
     },
     {
         "slug": "asteroids",
@@ -385,7 +386,7 @@ UPDATE_NOTES = {
 # this list are pushed to the bottom of the Recommended sort. Update this
 # list when the user passes along popularity data.
 RECOMMENDED_ORDER = [
-    "pacman", "tetris", "snake", "twenty-forty-eight", "word-guess",
+    "tetris", "snake", "twenty-forty-eight", "word-guess",
     "flap", "tower-defense", "chrome-dino", "asteroids", "pong",
     "minesweeper", "breakout", "space-invaders", "coal-clicker",
     "memory-match", "tic-tac-toe", "connect-four", "checkers",
@@ -396,6 +397,9 @@ RECOMMENDED_ORDER = [
     "word-search", "trivia", "draw-guess", "whack-a-mole",
     "reaction-duel", "rock-paper-scissors", "sumo-smash",
     "tank-battle", "battleship",
+    # Games being fixed go at the end so they sink to the bottom of
+    # the Recommended sort:
+    "pacman",
 ]
 
 

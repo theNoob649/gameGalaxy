@@ -352,6 +352,65 @@ a:hover { color: var(--accent-2); }
   border-radius: 6px;
   z-index: 1;
 }
+
+/* Under-construction cards: not clickable, grayed thumb, yellow caution UI. */
+.game-card.under-construction {
+  cursor: not-allowed;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.game-card.under-construction:hover {
+  transform: none;
+  border-color: var(--border);
+}
+.game-card.under-construction .game-card-thumb,
+.game-card.under-construction .game-card-letter {
+  filter: grayscale(0.85) brightness(0.55);
+}
+.game-card-construction {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.construction-tape {
+  height: 12px;
+  background: repeating-linear-gradient(
+    45deg,
+    #fbbf24 0,
+    #fbbf24 12px,
+    #1a1a1a 12px,
+    #1a1a1a 24px
+  );
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
+}
+.construction-sign {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 15, 25, 0.9);
+  color: #fcd34d;
+  border: 2px solid #fbbf24;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+.construction-icon { font-size: 16px; line-height: 1; }
+.construction-text { line-height: 1.2; }
 /* Accent corner glow over the thumbnail, keeps the card lively. */
 .game-card-art::after {
   content: "";
