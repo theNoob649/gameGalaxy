@@ -240,12 +240,17 @@ function spin() {
   const targetIdx = Math.floor(Math.random() * WHEEL_ORDER.length);
   const targetNum = WHEEL_ORDER[targetIdx];
   const slice = (Math.PI * 2) / WHEEL_ORDER.length;
-  const targetAngle = -targetIdx * slice;
-  // Spin many full turns. The wheel's current angle is mod 2π — to land
-  // exactly on the target, we need totalRotation - startAngle to equal
-  // (2π * N + targetAngle - startAngle) mod 2π for some N. The simplest
-  // way: pick a large rotation amount, then nudge it so the endpoint
-  // matches.
+  // The pointer is at the TOP of the wheel (screen angle -PI/2). To land
+  // the target slice under the pointer with its center aligned to it, we
+  // need wheelAngle such that (targetIdx + 0.5) * slice + wheelAngle == -PI/2.
+  // The previous formula put the slice on the right side of the wheel, so
+  // the number the user saw under the pointer was a totally different slot
+  // from the one resolveSpin paid out on.
+  const targetAngle = -Math.PI / 2 - (targetIdx + 0.5) * slice;
+  // Spin many full turns. The wheel's current angle is mod 2pi, so to land
+  // exactly on the target we need totalRotation - startAngle to equal
+  // (2pi * N + targetAngle - startAngle) mod 2pi for some N. Easiest: pick
+  // a large rotation amount, then nudge it so the endpoint matches.
   const turns = 14 + Math.floor(Math.random() * 4);
   const startAngle = wheelAngle;
   // The endpoint needs to satisfy: endAngle mod 2π == targetAngle mod 2π
