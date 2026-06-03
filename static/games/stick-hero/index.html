@@ -95,22 +95,26 @@ function tick(ts) {
   } else if (phase === "walking") {
     hero.x += 280 * dt;
     const tipX = (current.x + current.w) + stick.len;
-    // Hero falls if he walks past the end of the stick AND is not standing
-    // on the next platform.
-    const overNextPlatform = hero.x >= next.x && hero.x <= next.x + next.w;
-    if (hero.x >= tipX && !overNextPlatform) {
-      // Stick too short or too long: walk off the end and drop.
+    // Whether the stick's tip actually lies on the next platform's surface.
+    // Only this case is a win. If the stick is too short the tip falls in
+    // the gap; if it's too long the tip overshoots the platform. Either
+    // way the hero keeps walking until the tip of the stick and drops off.
+    const stickLanded = tipX >= next.x && tipX <= next.x + next.w;
+    if (stickLanded) {
+      // Walk to the right edge of the next platform, then advance.
+      if (hero.x >= next.x + next.w - 14) {
+        hero.x = next.x + next.w - 14;
+        score++;
+        scoreEl.textContent = score;
+        current = next;
+        next = makeNext();
+        stick = { len: 0, falling: false, angle: 0 };
+        phase = "wait";
+        targetCameraShift = current.x - 70;
+      }
+    } else if (hero.x >= tipX) {
+      // Walked off the end of the stick (too short or too long).
       phase = "sliding";
-    } else if (overNextPlatform && hero.x >= next.x + next.w - 14) {
-      // Landed safely on the next platform: clamp and advance.
-      hero.x = next.x + next.w - 14;
-      score++;
-      scoreEl.textContent = score;
-      current = next;
-      next = makeNext();
-      stick = { len: 0, falling: false, angle: 0 };
-      phase = "wait";
-      targetCameraShift = current.x - 70;
     }
   } else if (phase === "sliding") {
     hero.x += 140 * dt;
